@@ -1,0 +1,16 @@
+{
+  "name": "shelf-control-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shelf Control web prototype. The game is index.html alone; this manifest only supplies the test tooling.",
+  "type": "module",
+  "scripts": {
+    "test": "node tools/headless.mjs",
+    "test:quick": "node tools/headless.mjs --quick",
+    "e2e": "node tools/e2e.mjs",
+    "serve": "npx serve ."
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  }
+}

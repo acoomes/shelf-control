@@ -6,8 +6,22 @@
 // Uses Playwright's fake clock so a 90-second level plays in a few seconds of wall time.
 import path from 'node:path';
 import fs from 'node:fs';
-let chromium;
-try { ({ chromium } = await import('playwright')); } catch (e) { ({ chromium } = await import('/opt/node22/lib/node_modules/playwright/index.mjs')); }
+import { createRequire } from 'node:module';
+import { execSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+
+/** Resolve Playwright from the local install first, then from the global npm root, else explain how to get it. */
+async function loadPlaywright() {
+  try { return await import('playwright'); } catch (e) { /* not installed locally */ }
+  try {
+    const root = execSync('npm root -g', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    const entry = createRequire(import.meta.url).resolve(path.join(root, 'playwright', 'package.json'));
+    return await import(pathToFileURL(path.join(path.dirname(entry), 'index.mjs')).href);
+  } catch (e) { /* no global install either */ }
+  console.error('Playwright is not installed. Run `npm install` (devDependency) or `npm install -g playwright`, then `npx playwright install chromium`.');
+  process.exit(2);
+}
+const { chromium } = await loadPlaywright();
 
 const PAGE_URL = 'file://' + path.resolve(path.dirname(new globalThis.URL(import.meta.url).pathname), '..', 'index.html');
 const SHOTS = process.env.SHOTS || '';
@@ -134,10 +148,10 @@ const scenarios = {
     s = await api.snap();
     ok(s.status === 'playing' && s.boxesN === 6 && s.waiting.length === 0 && s.stats.continuesUsed === 1, `+1 box: sixth box added, waiter seated, play resumes (boxes=${s.boxesN})`);
     await api.shot('after-continue');
-    // finish the level: B6, G6 then boxed R1s
-    await api.tapLane(0); await api.settle(); await api.tapLane(0); await api.settle();
-    for (let i = 0; i < 6; i++) { await api.tapBox(i); await api.run(300); }
-    s = await api.settle(); await api.run(1800); s = await api.snap();
+    // finish the level: B6 (bottom row), the six boxed R1s (middle row), then G6 (top row)
+    await api.tapLane(0); await api.settle();
+    for (let i = 0; i < 6; i++) { await api.tapBox(i); await api.run(300); if (i === 3) await api.settle(); }   // ≤5 in flight (shelf capacity)
+    await api.settle(); await api.tapLane(0); s = await api.settle(); await api.run(1800); s = await api.snap();
     ok(s.status === 'won', `won after the continue (6 boxes, stats: ${JSON.stringify(s.stats)})`);
     const tele = await api.page.evaluate(() => SC.telemetry());
     ok(tele.length === 2 && tele[0].result === 'failed' && tele[0].reason === 'no_box' && tele[1].result === 'won' && tele[1].continuesUsed === 1, `telemetry: ${JSON.stringify(tele.map(r => [r.result, r.reason, r.continuesUsed]))}`);
@@ -145,26 +159,28 @@ const scenarios = {
   async stuck(api) {
     await api.start(FIX.stuck);
     for (let i = 0; i < 5; i++) { await api.tapLane(0); await api.settle(); }
-    await api.run(1000);
-    let s = await api.snap();
-    ok(s.status === 'failed' && s.reason === 'stuck' && s.modal, `stuck detected after the beat (state=${s.state}, reason=${s.reason})`);
+    await api.run(300); let s = await api.snap();
+    ok(s.status === 'playing', 'not yet stuck before the 0.8 s beat');
+    await api.run(1600); s = await api.snap();
+    ok(s.status === 'failed' && s.reason === 'stuck' && s.modal, `stuck detected after the beat, fail card after the sequence (state=${s.state}, reason=${s.reason})`);
     const txt = await api.page.textContent('#panel'); ok(/tray is full/.test(txt), 'stuck card explains in plain words');
     await api.page.click('#panel .btn.good'); await api.run(300);
     s = await api.snap(); ok(s.status === 'playing' && s.boxesN === 6, '+1 box resolves the stuck state');
-    await api.tapLane(0); await api.settle(); await api.tapLane(0); await api.settle();
-    for (let i = 0; i < 6; i++) { await api.tapBox(i); await api.run(300); }
+    await api.tapLane(0); await api.settle();                                   // sixth R1 digs into the new box
+    await api.tapLane(0); await api.settle();                                   // B6 fills the bottom row
+    for (let i = 0; i < 6; i++) { await api.tapBox(i); await api.run(300); if (i === 3) await api.settle(); }   // boxed R1s finish the top row, ≤5 in flight
     await api.settle(); await api.run(1800); s = await api.snap(); ok(s.status === 'won', 'won after stuck + continue');
+    // Escape must not dismiss the result card
+    await api.page.keyboard.press('Escape'); await api.run(50); s = await api.snap(); ok(s.modal, 'Escape leaves the win card open');
   },
   async tripleTap(api) {
     await api.start(1);                                // chick: 3 lanes
-    await api.tapLane(0); await api.tapLane(1); await api.tapLane(2);      // within a few fake ms
-    await api.run(50);
-    let s = await api.snap();
-    ok(s.stats.dispatches === 1 && s.queue === 2, `first tap dispatched immediately, two buffered (dispatches=${s.stats.dispatches}, queue=${s.queue})`);
-    await api.tapLane(0);                               // fourth tap: buffer full → denied, not eaten silently
-    await api.run(20); s = await api.snap();
-    const extra = await api.page.evaluate(() => SC.Game.extraDenied);
-    ok(s.queue === 2 && extra === 1, `fourth tap within the gap is a visible deny (buffer full), not dropped silently`);
+    // four taps inside one frame (the fake clock keeps flowing between Playwright round-trips, so enqueue synchronously
+    // through the same path a pointer tap uses)
+    const q = await api.page.evaluate(() => { SC.tap({ kind: 'lane', lane: 0 }); SC.tap({ kind: 'lane', lane: 1 }); SC.tap({ kind: 'lane', lane: 2 }); const mid = { d: SC.Game.sim.stats.dispatches, q: SC.Game.queue.length }; SC.tap({ kind: 'lane', lane: 0 }); return { mid, after: { d: SC.Game.sim.stats.dispatches, q: SC.Game.queue.length, denied: SC.Game.extraDenied } }; });
+    ok(q.mid.d === 1 && q.mid.q === 2, `first tap dispatched immediately, two buffered (dispatches=${q.mid.d}, queue=${q.mid.q})`);
+    ok(q.after.q === 2 && q.after.denied === 1 && q.after.d === 1, `fourth tap within the gap is a visible deny (buffer full), not dropped silently`);
+    let s;
     await api.run(700); s = await api.snap();
     ok(s.stats.dispatches === 3 && s.inFlight.length === 3 && s.queue === 0, `three cats dispatched in order (inFlight=${s.inFlight.join(',')})`);
     const gaps = await api.page.evaluate(() => SC.Game.flight.map(a => a.pathS));
@@ -229,6 +245,20 @@ const scenarios = {
     ok(s.status === 'playing' && !s.modal, `generated level starts (wall ${Date.now() - t0} ms incl. UI)`);
     const def = await api.page.evaluate(() => ({ id: SC.Game.def.id, achieved: SC.Game.def.achieved, ms: SC.Game.def.genMs }));
     ok(def.id.startsWith('gen-') && def.ms < 400, `generation ${def.ms} ms, achieved ${def.achieved}`);
+  },
+  async pauseModal(api) {
+    await api.start(FIX.graceSave);
+    for (let i = 0; i < 5; i++) { await api.tapLane(0); await api.settle(); }
+    await api.tapLane(0);
+    for (let t = 0; t < 60; t++) { await api.run(100); const s = await api.snap(); if (s.waiting.length) break; }
+    await api.page.click('#btn-settings'); await api.run(50);
+    const before = await api.snap();
+    await api.run(4000);                                                  // settings open for 4 s > graceSeconds
+    let s = await api.snap();
+    ok(before.modal && s.modal && s.status === 'playing' && Math.abs(s.grace - before.grace) < 1e-6, `play is paused while settings is open (grace ${before.grace.toFixed(2)} → ${s.grace.toFixed(2)}, status ${s.status})`);
+    await api.page.click('#panel .btn:has-text("Done")'); await api.run(3400);   // close: the countdown resumes and expires
+    s = await api.snap();
+    ok(s.status === 'failed' && s.reason === 'no_box', `after closing settings the grace countdown resumes and expires (status ${s.status}/${s.reason})`);
   },
   async symbolsGrayscale(api) {
     await api.page.evaluate(() => { SC.settings.symbols = true; });

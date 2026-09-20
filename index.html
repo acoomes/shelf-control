@@ -1690,7 +1690,7 @@ function setupInput() {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
     if (e.key === 'd' || e.key === 'D') UI.toggleDebug();
     else if (e.key === 'r' || e.key === 'R') { if (Game.sim) UI.restart(); }
-    else if (e.key === 'Escape') UI.closeModal();
+    else if (e.key === 'Escape') { if (!Game.sim || Game.state === 'playing') UI.closeModal(); }
   });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) view.lastFrame = performance.now(); });
 }
@@ -1952,10 +1952,14 @@ function resize() {
 function loop(now) {
   const G = Game;
   const dt = clamp((now - view.lastFrame) / 1000, 0, 0.1);   // clamp: no teleporting after a background tab
-  view.lastFrame = now; view.acc = (view.acc || 0) + dt;
+  view.lastFrame = now;
+  // a dialog that blocks taps (settings) pauses play, otherwise the grace countdown could expire with no way to react
+  const paused = !!G.sim && G.state === 'playing' && UI.modalOpen();
+  view.acc = paused ? 0 : (view.acc || 0) + dt;
   let steps = 0;
   while (view.acc >= CONFIG.fixedStep && steps < 16) { update(CONFIG.fixedStep); view.acc -= CONFIG.fixedStep; steps++; }
   if (steps === 16) view.acc = 0;
+  G.paused = paused;
   render();
   G.fps = G.fps * 0.95 + (dt > 0 ? 1 / dt : 60) * 0.05;
   UI.updateDebug(false);
