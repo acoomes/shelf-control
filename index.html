@@ -59,6 +59,7 @@ button.link{border:0;background:none;font:inherit;color:inherit;text-decoration:
 #debug .tele{margin-top:6px;color:#9B7BFF}
 .card-pic{display:block;margin:0 auto 8px;border-radius:12px;background:#2A2140}
 @media (prefers-reduced-motion:reduce){.tip{animation:none}.tip.hand{animation:none}}
+:root.reduced-motion .tip,:root.reduced-motion .tip.hand{animation:none}
 </style>
 </head>
 <body>
@@ -495,31 +496,39 @@ const GEN = (() => {
    * generate-80-and-select (plan §12 Phase 3). Same seed → identical result.
    * art: string[] rows. preset: key of PRESETS. Returns a level object usable by createSim, plus ratings.
    */
-  function generateLevel({ art, preset = 'easy', seed = 1, reverse = false, candidates = 80, playouts = 100, rerate = 300, trayCap = 5 }) {
+  function generateLevel({ art, preset = 'easy', seed = 1, reverse = false, candidates = 80, playouts = 80, finalists = 6, extraPlayouts = 220, trayCap = 5 }) {
     const p = PRESETS[preset]; if (!p) throw new Error(`unknown preset ${preset}`);
     let cols = columns(art);
     if (reverse) cols = cols.map(s => s.slice().reverse());
     const rng = makeRng(seed);
-    let best = null;
+    // distance to the preset target; hard is a ceiling (inside it, prefer a level the greedy player loses, then the lower rate)
+    const score = (rate, greedyWins) => ({
+      dist: p.targetIsCeiling ? Math.max(0, rate - p.target) : Math.abs(rate - p.target),
+      tie: p.targetIsCeiling ? (greedyWins ? 1 : 0) * 10 + rate : 0,
+    });
+    const better = (a, b) => !b || a.dist < b.dist - 1e-12 || (Math.abs(a.dist - b.dist) <= 1e-12 && a.tie < b.tie);
+    // stage 1: every candidate gets a cheap rating
+    const pool = [];
     for (let i = 0; i < candidates; i++) {
       const g = generate(cols, rng, { lanes: p.lanes, trayCap, refTrayMax: p.refTrayMax, pBig: p.pBig, bigMult: p.bigMult });
       if (!replay(g.cols, g.lanes, g.ref, g.where, trayCap)) throw new Error('generated level failed replay()');
-      const rate = randomWinRate(g.cols, g.lanes, trayCap, rng, playouts);
+      const wins = Math.round(randomWinRate(g.cols, g.lanes, trayCap, rng, playouts) * playouts);
       const greedyWins = playout(g.cols, g.lanes, trayCap, rng, true);
-      const dist = p.targetIsCeiling ? Math.max(0, rate - p.target) : Math.abs(rate - p.target);
-      // hard: inside the ceiling, prefer a level the greedy player loses (forces lookahead), then the lower rate
-      const tie = p.targetIsCeiling ? (greedyWins ? 1 : 0) * 10 + rate : 0;
-      if (!best || dist < best.dist - 1e-12 || (Math.abs(dist - best.dist) <= 1e-12 && tie < best.tie)) {
-        best = { g, rate, greedyWins, dist, tie, index: i };
-      }
+      pool.push({ g, wins, n: playouts, greedyWins, index: i, ...score(wins / playouts, greedyWins) });
     }
-    // The selection score is biased (winner's curse: the best of 80 noisy estimates); re-rate the winner with a
-    // fresh batch so the tile shows an honest number. Selection itself still uses the cheap estimate.
-    const rerated = randomWinRate(best.g.cols, best.g.lanes, trayCap, rng, rerate);
+    // stage 2: the best of 80 noisy estimates is biased (winner's curse), so the closest few are re-rated with more
+    // playouts and the winner is chosen on the combined estimate, which is also the rating shown to the player
+    pool.sort((a, b) => (a.dist - b.dist) || (a.tie - b.tie) || (a.index - b.index));
+    let best = null;
+    for (const c of pool.slice(0, Math.max(1, finalists))) {
+      c.wins += Math.round(randomWinRate(c.g.cols, c.g.lanes, trayCap, rng, extraPlayouts) * extraPlayouts); c.n += extraPlayouts;
+      Object.assign(c, score(c.wins / c.n, c.greedyWins));
+      if (better(c, best)) best = c;
+    }
     const lanes = best.g.lanes.map(l => l.map(([color, count]) => ({ color, count })));
     const level = {
       id: `gen-${preset}-${seed >>> 0}`, name: 'Generated', art: art.slice(), lanes: lanes.map(laneToString),
-      seed: seed >>> 0, preset, achieved: rerated, selectionScore: best.rate, greedyWins: best.greedyWins, refMaxTray: best.g.maxTray,
+      seed: seed >>> 0, preset, achieved: best.wins / best.n, ratedPlayouts: best.n, greedyWins: best.greedyWins, refMaxTray: best.g.maxTray,
       reverse, target: p.target, targetIsCeiling: !!p.targetIsCeiling, candidateIndex: best.index,
       ref: best.g.ref.slice(), where: best.g.where,   // the reference line (proof of solvability), replayable through createSim
     };
@@ -770,10 +779,14 @@ const Store = (() => {
 })();
 const settings = Object.assign({ sound: CONFIG.sound, symbols: CONFIG.symbols, assist: CONFIG.assist, motion: 'auto', seenTips: {} }, Store.get('sc.settings', {}));
 const progress = Object.assign({ done: {} }, Store.get('sc.progress', {}));
-const saveSettings = () => Store.set('sc.settings', settings);
+const saveSettings = () => { Store.set('sc.settings', settings); applyMotionClass(); };
 const saveProgress = () => Store.set('sc.progress', progress);
 const mediaReduced = (() => { try { return window.matchMedia('(prefers-reduced-motion: reduce)'); } catch (e) { return { matches: false }; } })();
 const reducedMotion = () => (settings.motion === 'on' ? true : settings.motion === 'off' ? false : !!mediaReduced.matches);
+/** CSS animations (tutorial hand, tip fade) read the same preference through a root class. */
+function applyMotionClass() { try { document.documentElement.classList.toggle('reduced-motion', reducedMotion()); } catch (e) { /* no DOM */ } }
+applyMotionClass();
+try { if (mediaReduced.addEventListener) mediaReduced.addEventListener('change', applyMotionClass); } catch (e) { /* ignore */ }
 
 // ------------------------------ AUDIO (plan §10) ------------------------------
 const Audio = (() => {
