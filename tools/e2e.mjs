@@ -170,8 +170,12 @@ const scenarios = {
     await api.tapLane(0); await api.settle();                                   // B6 fills the bottom row
     for (let i = 0; i < 6; i++) { await api.tapBox(i); await api.run(300); if (i === 3) await api.settle(); }   // boxed R1s finish the top row, ≤5 in flight
     await api.settle(); await api.run(1800); s = await api.snap(); ok(s.status === 'won', 'won after stuck + continue');
-    // Escape must not dismiss the result card
+    // Escape, the settings button and settings → Done must all leave the result card reachable
     await api.page.keyboard.press('Escape'); await api.run(50); s = await api.snap(); ok(s.modal, 'Escape leaves the win card open');
+    await api.page.evaluate(() => document.getElementById('btn-settings').click()); await api.run(50);   // the backdrop covers the HUD, so drive the handler directly
+    let txt2 = await api.page.textContent('#panel'); ok(/Settings/.test(txt2), 'settings opens on top of the win card');
+    await api.page.click('#panel .btn:has-text("Done")'); await api.run(50);
+    txt2 = await api.page.textContent('#panel'); s = await api.snap(); ok(s.modal && /done!/.test(txt2), 'closing settings brings the win card back');
   },
   async tripleTap(api) {
     await api.start(1);                                // chick: 3 lanes
@@ -245,6 +249,17 @@ const scenarios = {
     ok(s.status === 'playing' && !s.modal, `generated level starts (wall ${Date.now() - t0} ms incl. UI)`);
     const def = await api.page.evaluate(() => ({ id: SC.Game.def.id, achieved: SC.Game.def.achieved, ms: SC.Game.def.genMs }));
     ok(def.id.startsWith('gen-') && def.ms < 400, `generation ${def.ms} ms, achieved ${def.achieved}`);
+  },
+  async reduced(api) {
+    await api.start(4);
+    await api.page.evaluate(() => { SC.settings.motion = 'on'; SC.CONFIG.walkSpeed = 1.5; });
+    for (let i = 0; i < 5; i++) { await api.tapLane(i % 3); await api.run(320); }
+    await api.tapLane(0); await api.run(30);                              // shelf_full deny → shake starts
+    const a = await api.page.evaluate(() => { const c = SC.Game.sim.lanes[0][0]; const act = SC.Game.actors[c.id]; return { shake: act.shake, x: act.x, tx: SC.Game.L.laneX(0) }; });
+    ok(a.shake > 0, `deny registered (shake ${a.shake.toFixed(2)})`);
+    const xs = []; for (let i = 0; i < 6; i++) { await api.run(16); xs.push(await api.page.evaluate(() => SC.Game.actors[SC.Game.sim.lanes[0][0].id].x)); }
+    ok(xs.every(x => Math.abs(x - a.tx) < 0.5), `reduced motion: the denied cat does not oscillate (x spread ${(Math.max(...xs) - Math.min(...xs)).toFixed(2)} px)`);
+    await api.page.evaluate(() => { SC.settings.motion = 'auto'; SC.CONFIG.walkSpeed = 4.5; });
   },
   async pauseModal(api) {
     await api.start(FIX.graceSave);

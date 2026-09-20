@@ -1187,7 +1187,7 @@ function startLevel(def, opts = {}) {
   G.rowDone = new Array(G.sim.H).fill(false);
   G.time = 0; G.playTime = 0; G.queue = []; G.lastDispatchAt = -10; G.combo = { step: -1, last: -10 };
   G.state = 'playing'; G.stateT = 0; G.shelfFlash = 0; G.colNudge = new Array(G.sim.W).fill(0); G.graceHead = null;
-  G.stuckT = 0; G.heartbeatT = 0; G.shiverT = 0; G.wave = -1; G.continueUsed = false; G.lastDispatched = null; G.extraDenied = 0; G.winFired = false;
+  G.stuckT = 0; G.heartbeatT = 0; G.shiverT = 0; G.wave = -1; G.continueUsed = false; G.lastDispatched = null; G.extraDenied = 0; G.winFired = false; G.lastCard = null;
   G.initialFrontier = G.sim.cols.map((s, c) => G.sim.frontierColor(c));
   G.tut = { frontierChanged: false };
   refreshLaneIndices();
@@ -1278,7 +1278,7 @@ function useContinue() {
   const G = Game; if (G.continueUsed) return false;
   G.continueUsed = true; const r = G.sim.addBox();
   for (const a of G.actors) if (a.state === 'wait') { a.flop = 0; a.tilt = 0; }
-  G.state = 'playing'; G.stateT = 0; G.stuckT = 0;
+  G.state = 'playing'; G.stateT = 0; G.stuckT = 0; G.lastCard = null;
   seatWaiting(r.seated, true);
   addText(DW / 2, 540, '+1 box', PALETTE.G.hex, 22, 1.2);
   Audio.relief();
@@ -1365,7 +1365,7 @@ function update(dt) {
       if (a.pathS >= L.pathLen - 0.01) arriveActor(a);
     } else if (a.state === 'wait') {
       a.t += dt;
-      if (!head) { head = a; a.grace += dt; a.tilt = Math.sin(a.t * 9) * 0.10; if (a.grace >= CONFIG.graceSeconds && G.state === 'playing') graceExpire(a); }
+      if (!head) { head = a; a.grace += dt; a.tilt = reducedMotion() ? 0 : Math.sin(a.t * 9) * 0.10; if (a.grace >= CONFIG.graceSeconds && G.state === 'playing') graceExpire(a); }
       else a.tilt = 0;
     }
   }
@@ -1408,7 +1408,7 @@ function update(dt) {
       // eyes track the most recently dispatched cat
       const tgt = G.lastDispatched && G.lastDispatched !== a && G.lastDispatched.state !== 'gone' ? G.lastDispatched : null;
       a.look = tgt ? { dx: (tgt.x - a.x) / 60, dy: (tgt.y - a.y) / 120 } : { dx: 0, dy: 0 };
-      if (graceActive && canPlace > 0) { a.bounce = Math.abs(Math.sin(G.time * 19)) * 9; a.glow = 1; }
+      if (graceActive && canPlace > 0) { a.bounce = reducedMotion() ? 4 : Math.abs(Math.sin(G.time * 19)) * 9; a.glow = 1; }
       else if (settings.assist && canPlace > 0 && G.state === 'playing') { a.bounce = Math.abs(Math.sin(G.time * 4.5 + a.id)) * 3; a.glow = 0; }
       else { a.bounce = 0; a.glow = 0; }
       if (a.cheer > 0) a.bounce = Math.abs(Math.sin(G.time * 12)) * 8 * a.cheer;
@@ -1540,11 +1540,13 @@ function drawSweepsAndWave(ctx) {
 }
 function drawActorFull(ctx, a) {
   const G = Game;
-  const shakeX = a.shake > 0 ? Math.sin(a.shake * Math.PI * 4) * 4 : 0, wigX = a.wiggle > 0 ? Math.sin(a.wiggle * Math.PI * 6) * 3 : 0;
+  const rm = reducedMotion();
+  const shakeX = a.shake > 0 && !rm ? Math.sin(a.shake * Math.PI * 4) * 4 : 0, wigX = a.wiggle > 0 && !rm ? Math.sin(a.wiggle * Math.PI * 6) * 3 : 0;
+  const rmSquash = rm && (a.shake > 0 || a.wiggle > 0) ? 1 - 0.08 * Math.max(a.shake, a.wiggle) : 1;   // one soft dip instead of a shake
   const bob = a.state === 'path' && a.seg === 'walk' && a.moving ? 3 * Math.abs(Math.sin(Math.PI * 6 * a.walkT)) : 0;
   const flop = a.flop ? Math.PI / 2 * clamp(G.stateT / 0.4, 0, 1) : 0;
   drawCat(ctx, { x: a.x + shakeX + wigX, y: a.y, s: a.s, color: a.color, dir: a.dir, bob: bob + a.bounce, legPhase: a.legPhase, tailPhase: a.tailPhase,
-    squashX: a.squashX, squashY: a.squashY, look: a.look, blink: a.blink, badge: a.badge, badgePop: a.badgePop, swipe: a.swipe, earTwitch: a.earTwitch,
+    squashX: a.squashX * rmSquash, squashY: a.squashY * rmSquash, look: a.look, blink: a.blink, badge: a.badge, badgePop: a.badgePop, swipe: a.swipe, earTwitch: a.earTwitch,
     happy: a.happy > 0 || a.cheer > 0, alpha: a.alpha, tilt: a.tilt + flop, dim: a.dim, symbol: settings.symbols });
 }
 function drawGraceRing(ctx, a) {
@@ -1782,11 +1784,16 @@ const UI = (() => {
   }
   // ---- modal ----
   function openModal(node) { panel.innerHTML = ''; panel.appendChild(node); modal.classList.remove('hidden'); }
-  function closeModal() { modal.classList.add('hidden'); }
+  const levelOver = () => !!Game.sim && (Game.state === 'won' || Game.state === 'failed');
+  /** Hides the dialog, except that a win/fail card comes back: the result card is the only way onward. */
+  function closeModal() {
+    if (levelOver() && Game.lastCard) { const c = Game.lastCard; showCard(c.result, c.reason, c.rec); return; }
+    modal.classList.add('hidden');
+  }
   function modalOpen() { return !modal.classList.contains('hidden'); }
   function button(label, cls, fn) { const b = el('button', 'btn' + (cls ? ' ' + cls : ''), label); b.type = 'button'; b.addEventListener('click', fn); return b; }
   function showCard(result, reason, rec) {
-    const G = Game, box = el('div');
+    const G = Game, box = el('div'); G.lastCard = { result, reason, rec };
     if (result === 'won') {
       box.appendChild(el('h2', null, `${G.def.name} done!`));
       const th = artThumb(G.def.art, true, 160, 150); th.className = 'card-pic'; box.appendChild(th);
@@ -1807,7 +1814,7 @@ const UI = (() => {
       box.appendChild(el('p', null, msg));
       box.appendChild(el('p', 'small', `${rec.dispatches} dispatches · ${Math.round((G.sim.placedCount() / G.sim.totalCells()) * 100)}% of the picture`));
       const row = el('div', 'row');
-      if (!G.continueUsed) row.appendChild(button('+1 box and continue', 'good', () => { closeModal(); useContinue(); }));
+      if (!G.continueUsed) row.appendChild(button('+1 box and continue', 'good', () => { useContinue(); closeModal(); }));
       row.appendChild(button('Try again', G.continueUsed ? 'good' : 'secondary', restart));
       row.appendChild(button('Levels', 'secondary', showSelect));
       box.appendChild(row);
@@ -1929,7 +1936,7 @@ const UI = (() => {
     if (dbgTele) dbgTele.textContent = `telemetry: ${G.telemetry.length} record(s)` + (G.telemetry.length ? ` · last: ${G.telemetry[G.telemetry.length - 1].result} ${G.telemetry[G.telemetry.length - 1].timeSec}s` : '');
   }
   $('#btn-restart').addEventListener('click', () => { Audio.init(); restart(); });
-  $('#btn-settings').addEventListener('click', () => { Audio.init(); if (modalOpen()) closeModal(); else showSettings(); });
+  $('#btn-settings').addEventListener('click', () => { Audio.init(); if (modalOpen() && !levelOver()) closeModal(); else showSettings(); });
   $('#btn-settings2').addEventListener('click', () => { Audio.init(); showSettings(); });
   modal.addEventListener('pointerdown', (e) => { if (e.target === modal && Game.sim && Game.state === 'playing') closeModal(); });
   return { showSelect, play, playGenerated, restart, onLevelStart, showCard, showSettings, showGen, tutorialEvent, toggleDebug, updateDebug, closeModal, modalOpen, artThumb };
