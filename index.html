@@ -17,7 +17,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#FFE3EC;font-family:Fr
 .small{font-size:13px;opacity:.75}
 #hud{position:absolute;left:0;top:28px;width:390px;height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;box-sizing:border-box;pointer-events:none}
 #hud>*{pointer-events:auto}
-#hud-title{font-weight:600;font-size:18px;text-shadow:0 1px 0 rgba(255,255,255,.6);pointer-events:none}
+#hud-title{font-weight:600;font-size:18px;text-shadow:0 1px 0 rgba(255,255,255,.6);pointer-events:none;max-width:270px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
 button.round{width:40px;height:40px;border-radius:20px;border:0;background:rgba(255,255,255,.78);color:#33284F;font-size:22px;line-height:40px;box-shadow:0 2px 6px rgba(51,40,79,.15);cursor:pointer;padding:0;font-family:inherit}
 button.round:active{transform:scale(.92)}
 .screen{position:absolute;inset:0;padding:44px 16px 16px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;overflow-y:auto;overflow-x:hidden}
@@ -876,7 +876,7 @@ function computeLayout(sim) {
   const wellPad = 10, wellY = 196, wellH = 336, wellW = boardW + wellPad * 2, wellX = DW / 2 - wellW / 2;
   const bx = DW / 2 - boardW / 2, by = wellY + wellH - wellPad - boardH;   // bottom-aligned: blocks stack from the floor
   const shelfY = 176;                                                        // surface the cats walk on
-  const treeX = 13, treeBaseY = 628;                                         // cat tree hugs the left edge
+  const treeX = 19, treeBaseY = 628;                                         // cat tree hugs the left edge
   const walkStartX = treeX, walkEndX = Math.min(368, bx + (W - 1) * pitch + cell / 2 + 0.8 * pitch);
   const slidePts = [{ x: walkEndX, y: shelfY }, { x: 381, y: shelfY + 54 }, { x: 381, y: 492 }, { x: 362, y: 524 }];
   const slideSeg = []; let slideLen = 0;
@@ -1077,17 +1077,17 @@ function drawWall(ctx, view) {
 function drawTree(ctx, L) {
   const x = L.treeX, top = L.shelfY - 2, base = L.treeBaseY + 14;
   // base plinth
-  roundRect(ctx, x - 16, base - 4, 36, 12, 6); ctx.fillStyle = T.woodEdge; ctx.fill();
+  roundRect(ctx, x - 16, base - 4, 32, 12, 6); ctx.fillStyle = T.woodEdge; ctx.fill();
   // post with sisal wrap
-  roundRect(ctx, x - 10, top, 20, base - top, 7); ctx.fillStyle = T.wood; ctx.fill();
-  ctx.fillStyle = rgba('#000000', 0.10); ctx.fillRect(x + 5, top + 6, 5, base - top - 12);
+  roundRect(ctx, x - 9, top, 18, base - top, 7); ctx.fillStyle = T.wood; ctx.fill();
+  ctx.fillStyle = rgba('#000000', 0.10); ctx.fillRect(x + 4, top + 6, 5, base - top - 12);
   ctx.strokeStyle = T.rope; ctx.lineWidth = 3;
-  for (let y = top + 40; y < top + 230; y += 7) { ctx.beginPath(); ctx.moveTo(x - 9, y); ctx.lineTo(x + 9, y + 1.5); ctx.stroke(); }
+  for (let y = top + 40; y < top + 230; y += 7) { ctx.beginPath(); ctx.moveTo(x - 8, y); ctx.lineTo(x + 8, y + 1.5); ctx.stroke(); }
   // a small perch half way (decor)
   roundRect(ctx, x - 6, top + 262, 24, 8, 4); ctx.fillStyle = T.woodEdge; ctx.fill();
 }
 function drawShelf(ctx, L, flash) {
-  const x0 = L.treeX - 12, x1 = L.slidePts[1].x + 4, y = L.shelfY;
+  const x0 = L.treeX - 14, x1 = L.slidePts[1].x + 4, y = L.shelfY;
   roundRect(ctx, x0, y + 2, x1 - x0, 16, 4); ctx.fillStyle = T.woodEdge; ctx.fill();   // front edge
   roundRect(ctx, x0, y - 2, x1 - x0, 9, 4); ctx.fillStyle = T.woodLight; ctx.fill();   // top face
   ctx.fillStyle = rgba('#000000', 0.08); ctx.fillRect(x0 + 4, y + 12, x1 - x0 - 8, 3);
@@ -1750,7 +1750,7 @@ const UI = (() => {
   function onLevelStart() {
     const G = Game; select.classList.add('hidden'); closeModal(); clearTips(); hud.classList.remove('hidden');
     const idx = G.levelIndex;
-    title.textContent = idx >= 0 ? `Level ${idx + 1} · ${G.def.name}` : `${G.def.preset || 'generated'} · ${G.mode === 'yoink' ? 'yoink' : 'build'} · seed ${G.def.seed}`;
+    title.textContent = idx >= 0 ? `Level ${idx + 1} · ${G.def.name}` : G.def.preset ? `${G.def.preset} · ${G.mode} · seed ${G.def.seed}` : `${G.def.name}${G.mode === 'yoink' ? ' · yoink' : ''}`;
     // tutorial (plan §11.2)
     if (idx === 0) { tutorialStep(1); }
     else if (idx === 1 && !settings.seenTips.frontOnly) { settings.seenTips.frontOnly = true; saveSettings(); showTip('Only the front cat in each line can go.', DW / 2, 640, 5); }
