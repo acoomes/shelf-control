@@ -2002,7 +2002,8 @@ const UI = (() => {
       const mySeq = ++genSeq;                         // a newer click or a close invalidates this request
       setTimeout(() => {
         if (mySeq !== genSeq) return;                 // the chooser was closed or Generate was clicked again meanwhile
-        const art = LEVELS.find(l => l.id === artSel.value).art, seed = (parseInt(seedIn.value, 10) || 1) >>> 0, mode = modeSel.value, preset = preSel.value;
+        const parsedSeed = parseInt(seedIn.value, 10);
+        const art = LEVELS.find(l => l.id === artSel.value).art, seed = (Number.isNaN(parsedSeed) ? 1 : parsedSeed) >>> 0, mode = modeSel.value, preset = preSel.value;   // 0 is a valid seed
         const t0 = performance.now();
         let level;
         try { level = GEN.generateLevel({ art, artId: artSel.value, preset, seed, reverse: mode === 'yoink', trayCap: CONFIG.trayCapacity }); } catch (e) { info.textContent = 'Generation failed: ' + e.message; return; }
