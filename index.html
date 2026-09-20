@@ -526,40 +526,50 @@ const GEN = (() => {
    * art: string[] rows. preset: key of PRESETS. Returns a level object usable by createSim, plus ratings.
    */
   // 64 candidates rather than the plan's 80: the plan's own rule for staying under 400 ms is to cut candidates before playouts
-  function generateLevel({ art, preset = 'easy', seed = 1, reverse = false, candidates = 64, playouts = 100, finalists = 6, extraPlayouts = 200, trayCap = 5 }) {
+  function generateLevel({ art, artId, preset = 'easy', seed = 1, reverse = false, candidates = 64, playouts = 100, finalists = 6, extraPlayouts = 200, trayCap = 5, retryCandidates = 32 }) {
     const p = PRESETS[preset]; if (!p) throw new Error(`unknown preset ${preset}`);
     let cols = columns(art);
     if (reverse) cols = cols.map(s => s.slice().reverse());
     const rng = makeRng(seed);
-    // distance to the preset target; hard is a ceiling (inside it, prefer a level the greedy player loses, then the lower rate)
-    const score = (rate, greedyWins) => ({
-      dist: p.targetIsCeiling ? Math.max(0, rate - p.target) : Math.abs(rate - p.target),
-      tie: p.targetIsCeiling ? (greedyWins ? 1 : 0) * 10 + rate : 0,
-    });
-    const better = (a, b) => !b || a.dist < b.dist - 1e-12 || (Math.abs(a.dist - b.dist) <= 1e-12 && a.tie < b.tie);
+    const artKey = artId || hashSeed(art.join('/')).toString(36);   // two arts with the same preset and seed must not collide
+    // distance to the preset target. hard is a ceiling that is also meant to force lookahead: a level the greedy player
+    // loses and that sits within the ±0.10 acceptance band outranks one the greedy player solves; inside the ceiling,
+    // prefer greedy-loses, then the lower rate
+    const score = (rate, greedyWins) => {
+      const dist = p.targetIsCeiling ? Math.max(0, rate - p.target) : Math.abs(rate - p.target);
+      const hardOk = p.targetIsCeiling && !greedyWins && dist <= 0.10;
+      return { dist, rank: hardOk ? 0 : 1, tie: p.targetIsCeiling ? (greedyWins ? 1 : 0) * 10 + rate : 0 };
+    };
+    const better = (a, b) => !b || a.rank < b.rank || (a.rank === b.rank && (a.dist < b.dist - 1e-12 || (Math.abs(a.dist - b.dist) <= 1e-12 && a.tie < b.tie)));
     // stage 1: every candidate gets a cheap rating
     const pool = [];
-    for (let i = 0; i < candidates; i++) {
-      const g = generate(cols, rng, { lanes: p.lanes, trayCap, refTrayMax: p.refTrayMax, pBig: p.pBig, bigMult: p.bigMult });
-      if (!replay(g.cols, g.lanes, g.ref, g.where, trayCap)) throw new Error('generated level failed replay()');
-      const wins = Math.round(randomWinRate(g.cols, g.lanes, trayCap, rng, playouts) * playouts);
-      const greedyWins = playout(g.cols, g.lanes, trayCap, rng, true);
-      pool.push({ g, wins, n: playouts, greedyWins, index: i, ...score(wins / playouts, greedyWins) });
-    }
-    // stage 2: the best of 80 noisy estimates is biased (winner's curse), so the closest few are re-rated with more
+    const addCandidates = (count) => {
+      for (let i = 0; i < count; i++) {
+        const g = generate(cols, rng, { lanes: p.lanes, trayCap, refTrayMax: p.refTrayMax, pBig: p.pBig, bigMult: p.bigMult });
+        if (!replay(g.cols, g.lanes, g.ref, g.where, trayCap)) throw new Error('generated level failed replay()');
+        const wins = Math.round(randomWinRate(g.cols, g.lanes, trayCap, rng, playouts) * playouts);
+        const greedyWins = playout(g.cols, g.lanes, trayCap, rng, true);
+        pool.push({ g, wins, n: playouts, greedyWins, index: pool.length, ...score(wins / playouts, greedyWins) });
+      }
+    };
+    addCandidates(candidates);
+    // stage 2: the best of many noisy estimates is biased (winner's curse), so the closest few are re-rated with more
     // playouts and the winner is chosen on the combined estimate, which is also the rating shown to the player
-    pool.sort((a, b) => (a.dist - b.dist) || (a.tie - b.tie) || (a.index - b.index));
-    let best = null;
-    for (const c of pool.slice(0, Math.max(1, finalists))) {
-      c.wins += Math.round(randomWinRate(c.g.cols, c.g.lanes, trayCap, rng, extraPlayouts) * extraPlayouts); c.n += extraPlayouts;
-      Object.assign(c, score(c.wins / c.n, c.greedyWins));
-      if (better(c, best)) best = c;
+    const order = (a, b) => (a.rank - b.rank) || (a.dist - b.dist) || (a.tie - b.tie) || (a.index - b.index);
+    const rerate = (c) => { c.wins += Math.round(randomWinRate(c.g.cols, c.g.lanes, trayCap, rng, extraPlayouts) * extraPlayouts); c.n += extraPlayouts; Object.assign(c, score(c.wins / c.n, c.greedyWins)); };
+    const selectFrom = (list, seed) => { let best = seed; for (const c of list.sort(order).slice(0, Math.max(1, finalists))) { if (!c.rerated) { rerate(c); c.rerated = true; } if (better(c, best)) best = c; } return best; };
+    let best = selectFrom(pool.slice(), null);
+    // hard is meant to force lookahead: if the winner is still greedy-solvable, try one more batch of candidates
+    let retried = false;
+    if (p.targetIsCeiling && retryCandidates > 0 && best.rank !== 0) {
+      const start = pool.length; addCandidates(retryCandidates); retried = true;
+      best = selectFrom(pool.slice(start).filter(c => c.rank === 0), best);
     }
     const lanes = best.g.lanes.map(l => l.map(([color, count]) => ({ color, count })));
     const level = {
-      id: `gen-${preset}-${seed >>> 0}`, name: 'Generated', art: art.slice(), lanes: lanes.map(laneToString), tray: trayCap,
+      id: `gen-${artKey}-${preset}-${seed >>> 0}`, name: 'Generated', art: art.slice(), artId: artId || null, lanes: lanes.map(laneToString), tray: trayCap,
       seed: seed >>> 0, preset, achieved: best.wins / best.n, ratedPlayouts: best.n, greedyWins: best.greedyWins, refMaxTray: best.g.maxTray,
-      reverse, target: p.target, targetIsCeiling: !!p.targetIsCeiling, candidateIndex: best.index,
+      reverse, target: p.target, targetIsCeiling: !!p.targetIsCeiling, candidateIndex: best.index, candidatesTried: pool.length, retried,
       ref: best.g.ref.slice(), where: best.g.where,   // the reference line (proof of solvability), replayable through createSim
     };
     loadLevel(level, { reverse });   // loader assertions must hold for generated levels too
@@ -1561,7 +1571,8 @@ function update(dt) {
 
 function finishLevel(result, reason) {
   const G = Game, sim = G.sim, st = sim.stats;
-  const rec = { level: G.def.id, seed: G.def.seed ?? null, mode: G.mode, result, reason, timeSec: Math.round(G.playTime * 10) / 10,
+  const rec = { level: G.def.id, art: G.def.artId || (G.def.id.startsWith('gen-') ? null : G.def.id), preset: G.def.preset || null, seed: G.def.seed ?? null, mode: G.mode,
+    trayCapacity: sim.boxes.length - st.continuesUsed, shelfCapacity: sim.shelfCapacity, result, reason, timeSec: Math.round(G.playTime * 10) / 10,
     dispatches: st.dispatches, zeroPlaceDispatches: st.zeroPlaceDispatches, maxBoxesUsed: st.maxBoxesUsed, graceSaves: st.graceSaves,
     continuesUsed: st.continuesUsed, deniedTaps: st.deniedTaps + G.extraDenied };
   G.telemetry.push(rec); console.log('[shelf-control telemetry]', JSON.stringify(rec));
@@ -1990,8 +2001,8 @@ const UI = (() => {
         const art = LEVELS.find(l => l.id === artSel.value).art, seed = (parseInt(seedIn.value, 10) || 1) >>> 0, mode = modeSel.value, preset = preSel.value;
         const t0 = performance.now();
         let level;
-        try { level = GEN.generateLevel({ art, preset, seed, reverse: mode === 'yoink', trayCap: CONFIG.trayCapacity }); } catch (e) { info.textContent = 'Generation failed: ' + e.message; return; }
-        level.artId = artSel.value; level.name = `${LEVELS.find(l => l.id === artSel.value).name} · ${preset}`;
+        try { level = GEN.generateLevel({ art, artId: artSel.value, preset, seed, reverse: mode === 'yoink', trayCap: CONFIG.trayCapacity }); } catch (e) { info.textContent = 'Generation failed: ' + e.message; return; }
+        level.name = `${LEVELS.find(l => l.id === artSel.value).name} · ${preset}`;
         level.genMs = Math.round(performance.now() - t0);
         CONFIG.mode = mode;
         info.textContent = `Achieved random-win ${Math.round(level.achieved * 100)}% (target ${preset === 'hard' ? '≤ 5%' : Math.round(GEN.PRESETS[preset].target * 100) + '%'}) · greedy ${level.greedyWins ? 'wins' : 'loses'} · ${level.genMs} ms`;
@@ -2025,8 +2036,8 @@ const UI = (() => {
     dbgMode.addEventListener('change', () => {
       const G = Game; CONFIG.mode = dbgMode.value;
       if (G.def && G.def.id.startsWith('gen-')) {
-        const lv = GEN.generateLevel({ art: G.def.art, preset: G.def.preset, seed: G.def.seed, reverse: dbgMode.value === 'yoink', trayCap: CONFIG.trayCapacity });
-        lv.artId = G.def.artId; lv.name = G.def.name; playGenerated(lv, dbgMode.value);
+        const lv = GEN.generateLevel({ art: G.def.art, artId: G.def.artId, preset: G.def.preset, seed: G.def.seed, reverse: dbgMode.value === 'yoink', trayCap: CONFIG.trayCapacity });
+        lv.name = G.def.name; playGenerated(lv, dbgMode.value);
       }
     });
     modeRow.appendChild(dbgMode); modeRow.appendChild(el('span', 'small', ' (generated levels only)')); debug.appendChild(modeRow);
