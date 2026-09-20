@@ -1900,7 +1900,7 @@ const UI = (() => {
   function tutorialEvent(kind) {
     const G = Game; if (G.levelIndex !== 0) return;
     if (kind === 'dispatch' && tutState === 1) { clearTips(); tutState = 1.5; }
-    else if (kind === 'boxed' && !G.tut.tip2) { G.tut.tip2 = true; clearTips(); showTip('Cats with blocks left nap in a box. Run out of boxes and it’s over.', DW / 2, 640, 5); }
+    else if (kind === 'boxed' && !G.tut.tip2) { G.tut.tip2 = true; clearTips(); showTip('Cats with blocks left nap in a box. Run out of boxes and it’s over.', DW / 2, 122, 5); }
     else if (kind === 'frontier' && !G.tut.tip3) { G.tut.tip3 = true; if (!G.tut.tip2) return; clearTips(); showTip('Glowing squares show what each column needs next.', DW / 2, 130, 5); }
   }
   // ---- modal ----
