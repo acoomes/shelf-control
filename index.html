@@ -1,0 +1,2157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#FFE3EC">
+<title>Shelf Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap">
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#FFE3EC;font-family:Fredoka,ui-rounded,"Nunito",system-ui,sans-serif;color:#33284F;-webkit-user-select:none;user-select:none;touch-action:none;overscroll-behavior:none;-webkit-tap-highlight-color:transparent}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#stage{position:fixed;left:0;top:0;width:390px;height:844px;transform-origin:0 0;pointer-events:none}
+#stage>*{pointer-events:auto}
+#tips,#tips *{pointer-events:none}
+.hidden{display:none!important}
+.small{font-size:13px;opacity:.75}
+#hud{position:absolute;left:0;top:28px;width:390px;height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;box-sizing:border-box;pointer-events:none}
+#hud>*{pointer-events:auto}
+#hud-title{font-weight:600;font-size:18px;text-shadow:0 1px 0 rgba(255,255,255,.6);pointer-events:none;max-width:270px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
+button.round{width:40px;height:40px;border-radius:20px;border:0;background:rgba(255,255,255,.78);color:#33284F;font-size:22px;line-height:40px;box-shadow:0 2px 6px rgba(51,40,79,.15);cursor:pointer;padding:0;font-family:inherit}
+button.round:active{transform:scale(.92)}
+.screen{position:absolute;inset:0;padding:44px 16px 16px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;overflow-y:auto;overflow-x:hidden}
+h1{font-weight:700;font-size:38px;margin:0;letter-spacing:.5px;text-shadow:0 2px 0 rgba(255,255,255,.7)}
+.sub{margin:2px 0 12px;opacity:.75;font-size:14px}
+#tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;width:100%;flex:0 0 auto}
+.tile{background:rgba(255,255,255,.72);border-radius:18px;padding:8px;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;box-shadow:0 3px 10px rgba(51,40,79,.12);border:0;font:inherit;color:inherit;text-align:center}
+.tile:active{transform:scale(.97)}
+.tile canvas{border-radius:12px;background:#2A2140}
+.tile .name{font-weight:600;font-size:16px}
+.tile .meta{font-size:11px;opacity:.7;line-height:1.25}
+.tile.done .name::after{content:" ✓";color:#5FD38D}
+.tile.gen .dice{width:104px;height:84px;border-radius:12px;background:linear-gradient(135deg,#FFD84D,#FF9CCB);display:flex;align-items:center;justify-content:center;font-size:48px}
+.foot{margin:10px 0 0;font-size:13px;opacity:.7}
+button.link{border:0;background:none;font:inherit;color:inherit;text-decoration:underline;cursor:pointer;padding:0}
+.modal{position:absolute;inset:0;background:rgba(51,40,79,.35);display:flex;align-items:center;justify-content:center}
+.panel{background:#FFF9F2;border-radius:24px;padding:22px 20px;width:322px;box-sizing:border-box;box-shadow:0 10px 30px rgba(51,40,79,.3);text-align:center;max-height:780px;overflow:auto}
+.panel h2{margin:0 0 6px;font-size:26px}
+.panel p{margin:6px 0;font-size:15px}
+.panel .row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px}
+.btn{border:0;border-radius:14px;padding:10px 16px;font:600 16px Fredoka,ui-rounded,system-ui,sans-serif;background:#9B7BFF;color:#fff;cursor:pointer;box-shadow:0 3px 0 rgba(51,40,79,.25)}
+.btn.secondary{background:rgba(51,40,79,.1);color:#33284F;box-shadow:none}
+.btn.good{background:#5FD38D;color:#1F3A2A}
+.btn:active{transform:translateY(2px);box-shadow:none}
+.toggle{display:flex;justify-content:space-between;align-items:center;padding:8px 4px;border-bottom:1px solid rgba(51,40,79,.08);font-size:15px;text-align:left}
+.toggle select,.toggle input{font:inherit;font-size:14px;padding:4px 6px;border-radius:8px;border:1px solid rgba(51,40,79,.2);background:#fff;color:#33284F}
+.toggle input[type=checkbox]{width:22px;height:22px}
+.tip{position:absolute;background:#fff;color:#33284F;border-radius:14px;padding:7px 12px;font-size:13px;font-weight:600;box-shadow:0 4px 14px rgba(51,40,79,.2);max-width:300px;animation:tipIn .3s ease-out;white-space:normal;text-align:center;line-height:1.3}
+.tip.hand{font-size:34px;background:transparent;box-shadow:none;animation:pulse 1s ease-in-out infinite;padding:0}
+@keyframes tipIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes pulse{0%,100%{transform:scale(1) rotate(-15deg)}50%{transform:scale(1.25) rotate(-15deg)}}
+#debug{position:absolute;left:8px;top:80px;width:240px;background:rgba(42,33,64,.92);color:#fff;font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;border-radius:12px;padding:10px;box-sizing:border-box;max-height:560px;overflow:auto}
+#debug input[type=range]{width:100%;margin:0}
+#debug label{display:block;margin-top:4px}
+#debug textarea{width:100%;height:90px;font-size:10px;margin-top:6px}
+#debug .btn{padding:4px 8px;font-size:12px;margin:3px 2px}
+#debug select{font-size:12px}
+#debug .live{margin-bottom:6px;color:#FFD84D}
+#debug .tele{margin-top:6px;color:#9B7BFF}
+.card-pic{display:block;margin:0 auto 8px;border-radius:12px;background:#2A2140}
+@media (prefers-reduced-motion:reduce){.tip{animation:none}.tip.hand{animation:none}}
+:root.reduced-motion .tip,:root.reduced-motion .tip.hand{animation:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="stage">
+  <div id="hud" class="hidden">
+    <button id="btn-restart" class="round" type="button" aria-label="Restart level">⟲</button>
+    <div id="hud-title">Shelf Control</div>
+    <button id="btn-settings" class="round" type="button" aria-label="Settings">⚙</button>
+  </div>
+  <div id="tips"></div>
+  <div id="select" class="screen">
+    <h1>Shelf Control</h1>
+    <p class="sub">Tap a cat. Build the picture. Don’t run out of boxes.</p>
+    <div id="tiles"></div>
+    <p class="foot">web prototype · <button id="btn-settings2" class="link" type="button">settings</button></p>
+  </div>
+  <div id="modal" class="modal hidden"><div class="panel" id="panel"></div></div>
+  <div id="debug" class="hidden"></div>
+</div>
+<script id="core">
+'use strict';
+/* =====================================================================
+   SHELF CONTROL — core (pure logic)
+   Sections: CONFIG → RNG → LEVEL DATA → GENERATOR → SIM
+   This <script> has no DOM, no time, no Math.random. It is loaded as-is
+   by the Node test harness (tools/headless.mjs), so keep it pure.
+   ===================================================================== */
+
+// ============================== CONFIG ==============================
+const CONFIG = {
+  mode: 'build',           // 'build' | 'yoink' (Phase 5)
+  trayCapacity: 5,  shelfCapacity: 5,
+  walkSpeed: 4.5,          // columns per second; try 4–6
+  minDispatchGap: 0.28,    // seconds; also the tap buffer cadence
+  tapBuffer: 2,
+  graceSeconds: 2.5,
+  stuckBeat: 0.8,
+  comboWindow: 1.2,        // seconds; landing-melody ladder
+  burstDrop: false,        // experimental; breaks difficulty, see plan §4.3
+  assist: true, symbols: false, sound: true,
+  dprCap: 2, fixedStep: 1 / 120,
+};
+
+// =============================== RNG ================================
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);
+t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+/** Small helper API over a mulberry32 stream (mirrors the Python `random` calls the generator uses). */
+function makeRng(seed) {
+  const next = mulberry32(seed >>> 0);
+  const rng = {
+    seed: seed >>> 0,
+    random: next,
+    uniform(a, b) { return a + (b - a) * next(); },
+    int(n) { return Math.floor(next() * n); },            // 0 .. n-1
+    choice(arr) { return arr[Math.floor(next() * arr.length)]; },
+    weightedIndex(weights) {
+      let total = 0; for (const w of weights) total += w;
+      let r = next() * total;
+      for (let i = 0; i < weights.length; i++) { r -= weights[i]; if (r < 0) return i; }
+      return weights.length - 1;
+    },
+  };
+  return rng;
+}
+
+/** FNV-1a string hash → 32-bit seed, so "heart" always seeds the same stream. */
+function hashSeed(str) {
+  let h = 0x811C9DC5;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return h >>> 0;
+}
+
+// ============================ LEVEL DATA ============================
+const PALETTE = {
+  R:{ name:'Strawberry', hex:'#FF5A6E' }, O:{ name:'Tangerine', hex:'#FF9F45' },
+  Y:{ name:'Lemon',      hex:'#FFD84D' }, G:{ name:'Mint',      hex:'#5FD38D' },
+  B:{ name:'Sky',        hex:'#6EC6FF' }, P:{ name:'Grape',     hex:'#9B7BFF' },
+  K:{ name:'Cocoa',      hex:'#6B566F' }, W:{ name:'Cream',     hex:'#FFF4E0' },
+  N:{ name:'Bubblegum',  hex:'#FF9CCB' }, T:{ name:'Caramel',   hex:'#C98B5B' },
+};
+/** Glyph per colour for the colour-blind "symbols" setting (plan §8.4). */
+const SYMBOLS = { R:'●', O:'▲', Y:'■', G:'◆', B:'★', P:'♥', K:'✚', W:'☾', N:'⬟', T:'✿' };
+
+const LEVELS = [
+  { id:'heart', name:'Heart', art:[           // 9x8, 72 blocks, 3 colours — tutorial
+      "WWWWWWWWW",
+      "WWNRWRRWW",
+      "WNRRRRRRW",
+      "WRRRRRRRW",
+      "WWRRRRRWW",
+      "WWWRRRWWW",
+      "WWWWRWWWW",
+      "WWWWWWWWW" ],
+    lanes:[ "W18 W6 R5 N2", "R5 R3 W7 R12 W14" ] },
+
+  { id:'chick', name:'Chick', art:[           // 10x10, 100 blocks, 5 colours — easy
+      "BBBBBBBBBB",
+      "BBBYYYYBBB",
+      "BBYYYYYYBB",
+      "BBYKYYKYBB",
+      "BBYYOOYYBB",
+      "BYYYYYYYYB",
+      "BYYYYYYYYB",
+      "BBYYYYYYBB",
+      "BBBOBBOBBB",
+      "GGGGGGGGGG" ],
+    lanes:[ "G10 Y14 B4 K2 B1", "B8 O2 B2 B4 B6", "O2 Y4 Y13 Y9 B19" ] },
+
+  { id:'mushroom', name:'Mushroom', art:[     // 11x10, 110 blocks, 5 colours — easy+
+      "BBBBBBBBBBB",
+      "BBBRRRRRBBB",
+      "BBRRWRRRRBB",
+      "BRRRRRRWRRB",
+      "BRWRRRRRRRB",
+      "BRRRRWRRRRB",
+      "BBBWWWWWBBB",
+      "BBBWKWKWBBB",
+      "BBBWWWWWBBB",
+      "GGGGGGGGGGG" ],
+    lanes:[ "G11 W1 B5", "W11 B14 B2 R9 B10 W1", "B14 R16 K2 R10 W4" ] },
+
+  { id:'icecream', name:'Ice cream', art:[    // 10x11, 110 blocks, 6 colours — medium
+      "BBBBBBBBBB",
+      "BBBBRBBBBB",
+      "BBBNNNNBBB",
+      "BBNNNNNNBB",
+      "BBNNNNNNBB",
+      "BBGGGGGGBB",
+      "BGGGGGGGGB",
+      "BBTOTOTOBB",
+      "BBBOTOTBBB",
+      "BBBBTOBBBB",
+      "BBBBOBBBBB" ],
+    lanes:[ "B10 T6 B4 N16", "O2 O5 B2 B2 B10", "B9 B18 G8 G6 R1 B8 B3" ] },
+
+  { id:'catface', name:'Cat', art:[           // 11x11, 121 blocks, 5 colours — medium+
+      "BBBBBBBBBBB",
+      "BOOBBBBBOOB",
+      "BONOBBBONOB",
+      "BOOOOOOOOOB",
+      "BOOOOOOOOOB",
+      "BOKOOOOOKOB",
+      "BOOOONOOOOB",
+      "BOWWOKOWWOB",
+      "BBOWWWWWOBB",
+      "BBBOOOOOBBB",
+      "BBBBBBBBBBB" ],
+    lanes:[ "B11 B14 B6 O9 B12 O4 B1", "W9 N1 O9 O7 O8", "O15 K3 B10 N2" ] },
+
+  { id:'rainbow', name:'Rainbow', art:[       // 12x10, 120 blocks, 7 colours — hard (needs lookahead)
+      "BBBBBBBBBBBB",
+      "BBBBBRRBBBBB",
+      "BBBRRRRRRBBB",
+      "BRROOOOOORRB",
+      "BROOYYYYOORB",
+      "RROYGGGGYORR",
+      "ROYGPPPPGYOR",
+      "ROYGPBBPGYOR",
+      "WWWWPBBPWWWW",
+      "WWWWWBBWWWWW" ],
+    lanes:[ "O8 G2 B15 O8", "G2 P8 Y8 B2 R2", "B7 R16 G4", "W18 B2 Y2 R4 B12" ] },
+];
+
+/** Appendix B figures, used by the headless self-test and the level-select tiles. */
+const BACKTEST = {
+  heart:{ randomWin:0.97, greedyWins:true }, chick:{ randomWin:0.70, greedyWins:true },
+  mushroom:{ randomWin:0.52, greedyWins:true }, icecream:{ randomWin:0.32, greedyWins:true },
+  catface:{ randomWin:0.13, greedyWins:true }, rainbow:{ randomWin:0.025, greedyWins:false },
+};
+
+class LevelError extends Error {}
+
+/** Rows are top→bottom strings; returns colour lists bottom→top per column ('.' = air, only allowed on top). */
+function columns(grid) {
+  if (!Array.isArray(grid) || grid.length === 0) throw new LevelError('art is empty');
+  const H = grid.length, W = grid[0].length;
+  for (let r = 0; r < H; r++) if (grid[r].length !== W) throw new LevelError(`row ${r} has length ${grid[r].length}, expected ${W}`);
+  const cols = [];
+  for (let c = 0; c < W; c++) {
+    const seq = [];
+    for (let r = H - 1; r >= 0; r--) seq.push(grid[r][c]);
+    while (seq.length && seq[seq.length - 1] === '.') seq.pop();
+    if (seq.includes('.')) throw new LevelError(`column ${c}: gap under a colour`);
+    for (const ch of seq) if (!PALETTE[ch]) throw new LevelError(`column ${c}: unknown colour key '${ch}'`);
+    cols.push(seq);
+  }
+  return cols;
+}
+
+/** "W18 W6 R5" → [{color:'W',count:18}, ...] (front → back). */
+function parseLane(str) {
+  const out = [];
+  for (const tok of String(str).trim().split(/\s+/)) {
+    if (!tok) continue;
+    const m = /^([A-Z])([0-9]+)$/.exec(tok);
+    if (!m) throw new LevelError(`bad cat token '${tok}'`);
+    const count = parseInt(m[2], 10);
+    if (!PALETTE[m[1]]) throw new LevelError(`unknown colour key '${m[1]}' in lane`);
+    if (count <= 0) throw new LevelError(`cat '${tok}' carries no blocks`);
+    out.push({ color: m[1], count });
+  }
+  return out;
+}
+
+function laneToString(lane) { return lane.map(c => c.color + c.count).join(' '); }
+
+function colorCounts(cols) {
+  const counts = {};
+  for (const s of cols) for (const ch of s) counts[ch] = (counts[ch] || 0) + 1;
+  return counts;
+}
+
+/**
+ * Validate and normalise a level. Throws LevelError on any problem (plan §7 loader assertions).
+ * opts.reverse reverses each column (yoink mode: the frontier is the topmost remaining block).
+ */
+function loadLevel(level, opts = {}) {
+  if (!level || !Array.isArray(level.art)) throw new LevelError('level.art missing');
+  let cols = columns(level.art);
+  if (opts.reverse) cols = cols.map(s => s.slice().reverse());
+  if (!Array.isArray(level.lanes) || level.lanes.length === 0) throw new LevelError('level.lanes missing');
+  const lanes = level.lanes.map(l => (typeof l === 'string' ? parseLane(l) : l.map(c => ({ color: c.color, count: c.count }))));
+  const need = colorCounts(cols), have = {};
+  for (const lane of lanes) for (const c of lane) {
+    if (typeof c.color !== 'string' || !PALETTE[c.color]) throw new LevelError(`unknown colour key '${c.color}' in lane`);
+    if (!Number.isInteger(c.count) || c.count <= 0) throw new LevelError(`cat ${c.color}${c.count} carries no blocks`);
+    have[c.color] = (have[c.color] || 0) + c.count;
+  }
+  for (const k of ['tray', 'shelf']) if (level[k] !== undefined && !(Number.isInteger(level[k]) && level[k] > 0)) throw new LevelError(`${k} must be a positive integer`);
+  if (cols.every(s => s.length === 0)) throw new LevelError('board has no blocks');
+  for (const k of new Set([...Object.keys(need), ...Object.keys(have)])) {
+    if ((need[k] || 0) !== (have[k] || 0)) throw new LevelError(`colour ${k}: cells=${need[k] || 0} but cats carry ${have[k] || 0}`);
+  }
+  const H = level.art.length, W = level.art[0].length;
+  return { id: level.id || 'level', name: level.name || 'Level', art: level.art.slice(), W, H, cols, lanes,
+           trayCapacity: level.tray ?? CONFIG.trayCapacity, shelfCapacity: level.shelf ?? CONFIG.shelfCapacity,
+           reverse: !!opts.reverse, colorCounts: need, seed: level.seed, preset: level.preset, achieved: level.achieved, greedyWins: level.greedyWins };
+}
+
+/** Loader assertions for the baked set (called at boot; fails loudly). */
+function validateBakedLevels() {
+  const ids = new Set();
+  for (const lv of LEVELS) {
+    if (ids.has(lv.id)) throw new LevelError(`duplicate level id ${lv.id}`);
+    ids.add(lv.id);
+    loadLevel(lv);
+  }
+  return true;
+}
+
+// ============================= GENERATOR ============================
+// Port of plan Appendix A. Works on `cols` (bottom→top colour lists) and lanes as
+// arrays of [color, count] pairs. Pure: every random draw comes from the rng passed in.
+const GEN = (() => {
+  /** how many columns want this colour next */
+  function frontier(cols, ptr, color) {
+    let n = 0;
+    for (let c = 0; c < cols.length; c++) { const s = cols[c]; if (ptr[c] < s.length && s[ptr[c]] === color) n++; }
+    return n;
+  }
+
+  /** Rule A: one block per column per pass (burstDrop is the rejected experimental variant). */
+  function runPass(cols, ptr, color, count, burst) {
+    let placed = 0;
+    for (let c = 0; c < cols.length; c++) {
+      const s = cols[c];
+      if (count > 0 && ptr[c] < s.length && s[ptr[c]] === color) {
+        ptr[c]++; count--; placed++;
+        if (burst) while (count > 0 && ptr[c] < s.length && s[ptr[c]] === color) { ptr[c]++; count--; placed++; }
+      }
+    }
+    return placed;
+  }
+
+  function allDone(cols, ptr) { for (let c = 0; c < cols.length; c++) if (ptr[c] < cols[c].length) return false; return true; }
+
+  const PRESETS = {
+    tutorial: { lanes:2, refTrayMax:1, pBig:0.45, bigMult:[1.5, 2.2], target:0.97 },
+    easy:     { lanes:3, refTrayMax:2, pBig:0.45, bigMult:[1.5, 2.5], target:0.70 },
+    medium:   { lanes:3, refTrayMax:3, pBig:0.65, bigMult:[2.0, 3.5], target:0.30 },
+    hard:     { lanes:4, refTrayMax:4, pBig:0.85, bigMult:[2.5, 4.5], target:0.05, targetIsCeiling:true },
+  };
+
+  /**
+   * Build the cat supply by playing a reference solution forward under the real rules.
+   * Returns { cols, lanes:[[color,count]...][], maxTray, ref, where }.
+   */
+  function generate(cols, rng, o = {}) {
+    const lanes = o.lanes ?? 3, trayCap = o.trayCap ?? 5, refTrayMax = o.refTrayMax ?? 3, pBig = o.pBig ?? 0.5,
+          bigMult = o.bigMult ?? [2.0, 3.5], maxCount = o.maxCount ?? 20, pRecall = o.pRecall ?? 0.75;
+    const ptr = new Array(cols.length).fill(0);
+    const un = {}, order = [];                        // blocks per colour not yet given to a cat (insertion order kept)
+    for (const s of cols) for (const ch of s) { if (!(ch in un)) { un[ch] = 0; order.push(ch); } un[ch]++; }
+    const tray = [], cats = [], ref = [];             // tray items: [colour, left, catIndex]
+    let last = null, maxTray = 0;
+    let guard = 0;
+    while (!allDone(cols, ptr)) {
+      if (++guard > 100000) throw new Error('generator did not converge');
+      const recall = tray.filter(t => frontier(cols, ptr, t[0]) > 0);
+      const fresh = order.filter(x => un[x] > 0 && frontier(cols, ptr, x) > 0);
+      if (recall.length && (!fresh.length || rng.random() < pRecall)) {   // reference player re-sends a boxed cat
+        const t = rng.choice(recall);
+        t[1] -= runPass(cols, ptr, t[0], t[1]);
+        ref.push(t[2]);
+        if (t[1] === 0) tray.splice(tray.indexOf(t), 1);
+        last = t[0]; continue;
+      }
+      if (fresh.length > 1 && fresh.includes(last) && rng.random() < 0.8) fresh.splice(fresh.indexOf(last), 1); // colour variety
+      const x = rng.choice(fresh), can = frontier(cols, ptr, x);
+      let n;
+      if (tray.length < refTrayMax && un[x] > can && rng.random() < pBig) {
+        n = Math.min(un[x], maxCount, Math.max(can + 1, Math.trunc(can * rng.uniform(bigMult[0], bigMult[1]))));  // BIG: will need a box
+      } else {
+        n = Math.min(can, un[x], maxCount);                                                                       // CLEAN: empties in one pass
+      }
+      un[x] -= n; cats.push([x, n]); const k = cats.length - 1; ref.push(k);
+      const left = n - runPass(cols, ptr, x, n);
+      if (left) tray.push([x, left, k]);
+      maxTray = Math.max(maxTray, tray.length); last = x;
+    }
+    if (tray.length || Object.values(un).some(v => v > 0)) throw new Error('generator invariant broken');
+    const L = []; for (let i = 0; i < lanes; i++) L.push([]);
+    const where = {};
+    for (let k = 0; k < cats.length; k++) {           // deal into lanes, biased to the shortest; order kept per lane
+      const w = L.map(l => 1.0 / Math.pow(1 + l.length, 2));
+      const i = rng.weightedIndex(w); where[k] = [i, L[i].length]; L[i].push(cats[k]);
+    }
+    return { cols, lanes: L, maxTray, ref, where, trayCap };
+  }
+
+  /** Proof of solvability: replays the reference line under the evaluator's rules. Must return true. */
+  function replay(cols, L, ref, where, cap = 5) {
+    const ptr = new Array(cols.length).fill(0), pos = new Array(L.length).fill(0), tray = new Map();
+    for (const k of ref) {
+      let x, n;
+      if (tray.has(k)) { [x, n] = tray.get(k); tray.delete(k); }
+      else {
+        const [i, j] = where[k];
+        if (pos[i] !== j) throw new Error('reference cat is not at the front of its lane');
+        [x, n] = L[i][j]; pos[i]++;
+      }
+      const left = n - runPass(cols, ptr, x, n);
+      if (left) { if (tray.size >= cap) return false; tray.set(k, [x, left]); }
+    }
+    return allDone(cols, ptr) && tray.size === 0;
+  }
+
+  // ---- turn-based evaluator (one pass fully resolves before the next move) ----
+  function moves(cols, ptr, pos, L, tray) {
+    const out = [];
+    for (let i = 0; i < pos.length; i++) if (pos[i] < L[i].length) out.push(['lane', i]);
+    for (let j = 0; j < tray.length; j++) if (frontier(cols, ptr, tray[j][0]) > 0) out.push(['tray', j]);
+    return out;
+  }
+
+  function apply(cols, ptr, pos, L, tray, m, cap) {
+    let x, n;
+    if (m[0] === 'lane') { [x, n] = L[m[1]][pos[m[1]]]; pos[m[1]]++; }
+    else { [x, n] = tray.splice(m[1], 1)[0]; }
+    const left = n - runPass(cols, ptr, x, n);
+    if (left) {
+      if (tray.length >= cap) return false;           // came home, no free box -> loss
+      tray.push([x, left]);
+    }
+    return true;
+  }
+
+  /**
+   * greedy=false: uniform random legal moves. greedy=true: one-step lookahead "attentive casual player".
+   * Same rules, move order and random draws as moves()/apply() above (one draw per move, index = floor(r * count)),
+   * but colours are mapped to small integers once per (cols, lanes) pair and the per-colour frontier count is kept
+   * incrementally, so the hot loop of generate-80-and-select does no scanning and almost no allocation.
+   */
+  const prepCache = new WeakMap();
+  function preparePlayout(cols, L) {
+    let byLanes = prepCache.get(cols); if (!byLanes) { byLanes = new WeakMap(); prepCache.set(cols, byLanes); }
+    let prep = byLanes.get(L); if (prep) return prep;
+    const ids = new Map(); const idOf = (ch) => { let v = ids.get(ch); if (v === undefined) { v = ids.size; ids.set(ch, v); } return v; };
+    const seq = cols.map(s => s.map(idOf)), lens = seq.map(s => s.length);
+    const laneColor = L.map(l => l.map(cat => idOf(cat[0]))), laneCount = L.map(l => l.map(cat => cat[1]));
+    let total = 0; for (const l of lens) total += l;
+    const front0 = new Array(ids.size + 1).fill(0); for (let c = 0; c < seq.length; c++) if (lens[c] > 0) front0[seq[c][0]]++;
+    prep = { seq, lens, laneColor, laneCount, total, front0 };
+    byLanes.set(L, prep); return prep;
+  }
+  function playout(cols, L, cap, rng, greedy) {
+    const { seq, lens, laneColor, laneCount, total, front0 } = preparePlayout(cols, L);
+    const W = seq.length, nL = L.length;
+    const front = front0.slice(), ptr = new Array(W).fill(0), pos = new Array(nL).fill(0);
+    const trayC = [], trayN = [], mv = [];
+    let remaining = total, guard = 0;
+    while (remaining > 0) {
+      if (++guard > 10000) return false;
+      mv.length = 0;
+      for (let i = 0; i < nL; i++) if (pos[i] < laneColor[i].length) mv.push(i);
+      for (let j = 0; j < trayC.length; j++) if (front[trayC[j]] > 0) mv.push(nL + j);
+      const n = mv.length; if (n === 0) return false;
+      let m;
+      if (greedy) {
+        let best = -1, b0 = -1, b1 = -1, b2 = -1;
+        for (let k = 0; k < n; k++) {
+          const cand = mv[k], isLane = cand < nL;
+          const x = isLane ? laneColor[cand][pos[cand]] : trayC[cand - nL], cnt = isLane ? laneCount[cand][pos[cand]] : trayN[cand - nL];
+          const can = cnt < front[x] ? cnt : front[x];
+          const s0 = isLane && can < cnt && trayC.length >= cap ? 0 : 1, s1 = can === cnt ? 1 : 0, s2 = can + (isLane ? 0 : 0.5);
+          if (best < 0 || s0 > b0 || (s0 === b0 && (s1 > b1 || (s1 === b1 && s2 > b2)))) { best = cand; b0 = s0; b1 = s1; b2 = s2; }  // first max wins ties, like Python
+        }
+        m = best;
+      } else m = mv[Math.floor(rng.random() * n)];
+      let x, cnt;
+      if (m < nL) { x = laneColor[m][pos[m]]; cnt = laneCount[m][pos[m]]; pos[m]++; }
+      else { const j = m - nL; x = trayC[j]; cnt = trayN[j]; trayC.splice(j, 1); trayN.splice(j, 1); }
+      for (let c = 0; c < W && cnt > 0; c++) {          // Rule A: one block per column per pass
+        const p = ptr[c];
+        if (p < lens[c] && seq[c][p] === x) { ptr[c] = p + 1; cnt--; remaining--; front[x]--; if (p + 1 < lens[c]) front[seq[c][p + 1]]++; }
+      }
+      if (cnt > 0) { if (trayC.length >= cap) return false; trayC.push(x); trayN.push(cnt); }
+    }
+    return true;
+  }
+
+  function cmpTuple(a, b) { for (let i = 0; i < a.length; i++) { if (a[i] > b[i]) return 1; if (a[i] < b[i]) return -1; } return 0; }
+
+  function randomWinRate(cols, L, cap, rng, n = 100) {
+    let w = 0; for (let i = 0; i < n; i++) if (playout(cols, L, cap, rng, false)) w++;
+    return w / n;
+  }
+
+  /**
+   * Exhaustive turn-based solver (test plan §13.1.1): DFS with memoisation on (ptr, lanePositions, sortedTray).
+   * Returns { solvable, nodes, line } where line is the winning move list (or null).
+   */
+  function solve(cols, L, cap = 5, maxNodes = 5e6) {
+    const ptr = new Array(cols.length).fill(0), pos = new Array(L.length).fill(0);
+    const seen = new Set(); let nodes = 0; let aborted = false;
+    const line = [];
+    function key(tray) { return ptr.join(',') + '|' + pos.join(',') + '|' + tray.map(t => `${t[0]}${t[1]}`).sort().join(','); }
+    function dfs(tray) {
+      if (allDone(cols, ptr)) return true;
+      const k = key(tray);
+      if (seen.has(k)) return false;
+      if (++nodes > maxNodes) { aborted = true; return false; }
+      seen.add(k);
+      const mv = moves(cols, ptr, pos, L, tray);
+      for (const m of mv) {
+        const ptr0 = ptr.slice(), pos0 = pos.slice(), tray0 = tray.map(t => t.slice());
+        const ok = apply(cols, ptr, pos, L, tray, m, cap);
+        if (ok) { line.push(m); if (dfs(tray)) return true; line.pop(); }
+        for (let i = 0; i < ptr.length; i++) ptr[i] = ptr0[i];
+        for (let i = 0; i < pos.length; i++) pos[i] = pos0[i];
+        tray.length = 0; for (const t of tray0) tray.push(t);
+        if (aborted) return false;
+      }
+      return false;
+    }
+    const solvable = dfs([]);
+    return { solvable, nodes, aborted, line: solvable ? line.slice() : null };
+  }
+
+  /**
+   * generate-80-and-select (plan §12 Phase 3). Same seed → identical result.
+   * art: string[] rows. preset: key of PRESETS. Returns a level object usable by createSim, plus ratings.
+   */
+  // 64 candidates rather than the plan's 80: the plan's own rule for staying under 400 ms is to cut candidates before playouts
+  function generateLevel({ art, artId, preset = 'easy', seed = 1, reverse = false, candidates = 64, playouts = 100, finalists = 6, extraPlayouts = 200, trayCap = 5, retryCandidates = 32, retryBatches = 3 }) {
+    const p = PRESETS[preset]; if (!p) throw new Error(`unknown preset ${preset}`);
+    const refTrayMax = Math.min(p.refTrayMax, trayCap);   // the reference line may use at most this many boxes, so it replays at trayCap by construction
+    let cols = columns(art);
+    if (reverse) cols = cols.map(s => s.slice().reverse());
+    const rng = makeRng(seed);
+    const artKey = artId || hashSeed(art.join('/')).toString(36);   // two arts with the same preset and seed must not collide
+    // distance to the preset target. hard is a ceiling that is also meant to force lookahead: a level the greedy player
+    // loses and that sits within the ±0.10 acceptance band outranks one the greedy player solves; inside the ceiling,
+    // prefer greedy-loses, then the lower rate
+    const score = (rate, greedyWins) => {
+      const dist = p.targetIsCeiling ? Math.max(0, rate - p.target) : Math.abs(rate - p.target);
+      const hardOk = p.targetIsCeiling && !greedyWins && dist <= 0.10;
+      return { dist, rank: hardOk ? 0 : 1, tie: p.targetIsCeiling ? (greedyWins ? 1 : 0) * 10 + rate : 0 };
+    };
+    const better = (a, b) => !b || a.rank < b.rank || (a.rank === b.rank && (a.dist < b.dist - 1e-12 || (Math.abs(a.dist - b.dist) <= 1e-12 && a.tie < b.tie)));
+    // stage 1: every candidate gets a cheap rating
+    const pool = [];
+    const addCandidates = (count) => {
+      for (let i = 0; i < count; i++) {
+        const g = generate(cols, rng, { lanes: p.lanes, trayCap, refTrayMax, pBig: p.pBig, bigMult: p.bigMult });
+        if (!replay(g.cols, g.lanes, g.ref, g.where, trayCap)) throw new Error('generated level failed replay()');
+        const wins = Math.round(randomWinRate(g.cols, g.lanes, trayCap, rng, playouts) * playouts);
+        const greedyWins = playout(g.cols, g.lanes, trayCap, rng, true);
+        pool.push({ g, wins, n: playouts, greedyWins, index: pool.length, ...score(wins / playouts, greedyWins) });
+      }
+    };
+    // hard levels are cheap to rate (few moves), so hard starts smaller and spends the difference on retry batches below
+    addCandidates(p.targetIsCeiling ? Math.min(candidates, 48) : candidates);
+    // stage 2: the best of many noisy estimates is biased (winner's curse), so the closest few are re-rated with more
+    // playouts and the winner is chosen on the combined estimate, which is also the rating shown to the player
+    const order = (a, b) => (a.rank - b.rank) || (a.dist - b.dist) || (a.tie - b.tie) || (a.index - b.index);
+    const rerate = (c) => { c.wins += Math.round(randomWinRate(c.g.cols, c.g.lanes, trayCap, rng, extraPlayouts) * extraPlayouts); c.n += extraPlayouts; Object.assign(c, score(c.wins / c.n, c.greedyWins)); };
+    const selectFrom = (list, seed) => { let best = seed; for (const c of list.sort(order).slice(0, Math.max(1, finalists))) { if (!c.rerated) { rerate(c); c.rerated = true; } if (better(c, best)) best = c; } return best; };
+    let best = selectFrom(pool.slice(), null);
+    // hard is meant to force lookahead: while the winner is still greedy-solvable, try more batches (bounded), and
+    // report the outcome explicitly so the caller can say "no lookahead-forcing level found" instead of pretending
+    let retried = 0;
+    while (p.targetIsCeiling && retryCandidates > 0 && best.rank !== 0 && retried < retryBatches) {
+      const start = pool.length; addCandidates(retryCandidates); retried++;
+      best = selectFrom(pool.slice(start).filter(c => c.rank === 0), best);
+    }
+    const hardCompliant = p.targetIsCeiling ? best.rank === 0 : null;
+    const lanes = best.g.lanes.map(l => l.map(([color, count]) => ({ color, count })));
+    const level = {
+      id: `gen-${artKey}-${preset}-${seed >>> 0}`, name: 'Generated', art: art.slice(), artId: artId || null, lanes: lanes.map(laneToString), tray: trayCap,
+      seed: seed >>> 0, preset, achieved: best.wins / best.n, ratedPlayouts: best.n, greedyWins: best.greedyWins, refMaxTray: best.g.maxTray,
+      reverse, target: p.target, targetIsCeiling: !!p.targetIsCeiling, candidateIndex: best.index, candidatesTried: pool.length, retried, hardCompliant,
+      ref: best.g.ref.slice(), where: best.g.where,   // the reference line (proof of solvability), replayable through createSim
+    };
+    loadLevel(level, { reverse });   // loader assertions must hold for generated levels too
+    return level;
+  }
+
+  /** Convert a level's lanes into the evaluator's [[color,count]...][] shape. */
+  function lanesOf(level, reverse) {
+    const l = loadLevel(level, { reverse });
+    return { cols: l.cols, lanes: l.lanes.map(lane => lane.map(c => [c.color, c.count])), cap: l.trayCapacity };
+  }
+
+  return { PRESETS, frontier, runPass, allDone, generate, replay, moves, apply, playout, randomWinRate, solve, generateLevel, lanesOf };
+})();
+
+// ================================ SIM ===============================
+/**
+ * createSim(level, opts) — the whole game as a deterministic, turn-based puzzle (plan §6.3).
+ * opts.mode: 'build' | 'yoink'. When absent, a level generated with reverse:true is yoink, anything else build.
+ * In yoink mode `cols[c]` is the placement SEQUENCE (top→bottom); placements carry both `idx` (sequence index)
+ * and `row` (visual row from the bottom), and renderers must use `row` / `rowOf` / `frontierRow`.
+ * Contract with the presentation (it is the only caller): arrive() is called when a cat physically reaches the
+ * slide's end and never out of dispatch order; assignWaiting() is called after every box frees; graceExpired()
+ * only after the caller's own grace timer runs out. Deny reasons: 'not_tappable' | 'shelf_full' |
+ * 'nothing_to_place' | 'not_playing' | 'unknown_cat' (only the first three are §4.9 soft denies and count as deniedTaps).
+ * addBox() is permissive; "once per attempt" is enforced by the presentation.
+ */
+function createSim(level, opts = {}) {
+  const mode = opts.mode ?? (level && level.reverse ? 'yoink' : 'build');
+  const burst = opts.burstDrop ?? CONFIG.burstDrop;
+  const L = loadLevel(level, { reverse: mode === 'yoink' });
+  const cols = L.cols, W = cols.length;
+  const ptr = new Array(W).fill(0);
+  const cats = [];
+  const lanes = L.lanes.map((lane, li) => lane.map((c, j) => {
+    const cat = { id: cats.length, color: c.color, count: c.count, initial: c.count, where: 'lane', lane: li, slot: -1, laneIndex: j };
+    cats.push(cat); return cat;
+  }));
+  const sim = {
+    mode, W, H: L.H, level: L, cols, ptr, lanes, cats,
+    boxes: new Array(opts.trayCapacity ?? L.trayCapacity).fill(null),
+    inFlight: [],
+    status: 'playing', failReason: null,
+    shelfCapacity: opts.shelfCapacity ?? L.shelfCapacity,
+    stats: { dispatches: 0, zeroPlaceDispatches: 0, maxBoxesUsed: 0, graceSaves: 0, continuesUsed: 0, deniedTaps: 0, placedBlocks: 0 },
+  };
+  const totalCells = cols.reduce((a, s) => a + s.length, 0);
+
+  function cat(idOrCat) { return typeof idOrCat === 'object' ? idOrCat : cats[idOrCat]; }
+  function boxesUsed() { let n = 0; for (const b of sim.boxes) if (b) n++; return n; }
+  function noteBoxes() { sim.stats.maxBoxesUsed = Math.max(sim.stats.maxBoxesUsed, boxesUsed()); }
+  function firstFreeBox() { for (let i = 0; i < sim.boxes.length; i++) if (!sim.boxes[i]) return i; return -1; }
+  /** visual row (from the bottom) of sequence index i in column c */
+  function rowOf(c, i) { return mode === 'yoink' ? cols[c].length - 1 - i : i; }
+
+  sim.trayCapacity = () => sim.boxes.length;
+  sim.catById = (id) => cats[id];
+  sim.frontierColor = (c) => (ptr[c] < cols[c].length ? cols[c][ptr[c]] : null);
+  sim.frontierRow = (c) => (ptr[c] < cols[c].length ? rowOf(c, ptr[c]) : -1);
+  sim.rowOf = rowOf;
+  sim.complete = () => GEN.allDone(cols, ptr);
+  sim.placedCount = () => ptr.reduce((a, b) => a + b, 0);
+  sim.totalCells = () => totalCells;
+  sim.boxesUsed = boxesUsed;
+  sim.waitingCats = () => sim.inFlight.filter(c => c.where === 'wait');
+  sim.tappableCats = () => cats.filter(c => sim.isTappable(c));
+
+  sim.isTappable = (c) => {
+    c = cat(c); if (!c) return false;
+    if (c.where === 'box') return sim.boxes[c.slot] === c;
+    if (c.where === 'lane') return lanes[c.lane][0] === c;
+    return false;
+  };
+
+  /** number of blocks this cat would drop if dispatched now (dry run of the pass) */
+  sim.canPlaceNow = (c) => {
+    c = cat(c); if (!c || c.count <= 0) return 0;
+    return GEN.runPass(cols, ptr.slice(), c.color, c.count, burst);
+  };
+
+  sim.dispatch = (id) => {
+    const c = cat(id);
+    if (sim.status !== 'playing') return { ok: false, reason: 'not_playing' };
+    if (!c) return { ok: false, reason: 'unknown_cat' };
+    if (!sim.isTappable(c)) { sim.stats.deniedTaps++; return { ok: false, reason: 'not_tappable' }; }
+    if (sim.inFlight.length >= sim.shelfCapacity) { sim.stats.deniedTaps++; return { ok: false, reason: 'shelf_full' }; }
+    const n = sim.canPlaceNow(c);
+    if (c.where === 'box' && n === 0) { sim.stats.deniedTaps++; return { ok: false, reason: 'nothing_to_place' }; }
+    // remove from its lane front or its box (the box is free from this instant)
+    if (c.where === 'lane') lanes[c.lane].shift(); else sim.boxes[c.slot] = null;
+    const from = c.where, fromSlot = c.slot;
+    c.where = 'flight'; c.slot = -1;
+    const placements = [];
+    for (let col = 0; col < W; col++) {
+      const s = cols[col];
+      if (c.count > 0 && ptr[col] < s.length && s[ptr[col]] === c.color) {
+        placements.push({ col, row: rowOf(col, ptr[col]), idx: ptr[col], color: c.color });
+        ptr[col]++; c.count--;
+        if (burst) while (c.count > 0 && ptr[col] < s.length && s[ptr[col]] === c.color) {
+          placements.push({ col, row: rowOf(col, ptr[col]), idx: ptr[col], color: c.color }); ptr[col]++; c.count--;
+        }
+      }
+    }
+    sim.inFlight.push(c);
+    sim.stats.dispatches++; sim.stats.placedBlocks += placements.length;
+    if (placements.length === 0) sim.stats.zeroPlaceDispatches++;
+    if (GEN.allDone(cols, ptr)) sim.status = 'won';
+    return { ok: true, placements, remaining: c.count, from, fromSlot, cat: c };
+  };
+
+  /** presentation calls this at the slide's end */
+  sim.arrive = (id) => {
+    const c = cat(id);
+    if (!c || c.where !== 'flight') return { to: 'noop' };
+    if (c.count === 0) { sim.inFlight.splice(sim.inFlight.indexOf(c), 1); c.where = 'gone'; return { to: 'exit' }; }
+    // fairness: anyone already waiting ahead of us in dispatch order gets the next box first
+    const someoneWaiting = sim.inFlight.some(o => o !== c && o.where === 'wait' && sim.inFlight.indexOf(o) < sim.inFlight.indexOf(c));
+    const slot = someoneWaiting ? -1 : firstFreeBox();
+    if (slot >= 0) {
+      sim.inFlight.splice(sim.inFlight.indexOf(c), 1);
+      c.where = 'box'; c.slot = slot; sim.boxes[slot] = c; noteBoxes();
+      return { to: 'box', slot };
+    }
+    c.where = 'wait';
+    return { to: 'wait' };
+  };
+
+  /** call after any box frees → [{ catId, slot }] (each one is a grace save) */
+  sim.assignWaiting = (isContinue = false) => {
+    const out = [];
+    for (const c of sim.inFlight.slice()) {
+      if (c.where !== 'wait') continue;
+      const slot = firstFreeBox(); if (slot < 0) break;
+      sim.inFlight.splice(sim.inFlight.indexOf(c), 1);
+      c.where = 'box'; c.slot = slot; sim.boxes[slot] = c; noteBoxes();
+      if (!isContinue) sim.stats.graceSaves++;
+      out.push({ catId: c.id, slot });
+    }
+    return out;
+  };
+
+  sim.graceExpired = (id) => {
+    const c = cat(id);
+    if (!c || c.where !== 'wait' || sim.status !== 'playing') return false;
+    sim.status = 'failed'; sim.failReason = 'no_box';
+    return true;
+  };
+
+  /** the "+1 box" continue: adds a box, seats waiting cats, resumes play */
+  sim.addBox = () => {
+    sim.boxes.push(null);
+    sim.stats.continuesUsed++;
+    if (sim.status === 'failed') { sim.status = 'playing'; sim.failReason = null; }
+    const seated = sim.assignWaiting(true);
+    noteBoxes();
+    return { boxes: sim.boxes.length, seated };
+  };
+
+  /** plan §4.7 — the caller applies the 0.8 s beat */
+  sim.isStuck = () => {
+    if (sim.status !== 'playing') return false;
+    if (sim.inFlight.length > 0) return false;
+    for (const c of cats) if (sim.isTappable(c) && sim.canPlaceNow(c) > 0) return false;
+    const trayFull = sim.boxes.every(b => b !== null);
+    const lanesEmpty = lanes.every(l => l.length === 0);
+    return trayFull || lanesEmpty;
+  };
+
+  sim.failStuck = () => {
+    if (sim.status !== 'playing') return false;
+    sim.status = 'failed'; sim.failReason = 'stuck'; return true;
+  };
+
+  /** test plan §13.1.4: for each colour, unplaced cells == sum of remaining counts over all cats of that colour */
+  sim.checkInvariant = () => {
+    const unplaced = {}, carried = {};
+    for (let c = 0; c < W; c++) for (let i = ptr[c]; i < cols[c].length; i++) unplaced[cols[c][i]] = (unplaced[cols[c][i]] || 0) + 1;
+    for (const c of cats) if (c.count > 0) carried[c.color] = (carried[c.color] || 0) + c.count;
+    for (const k of new Set([...Object.keys(unplaced), ...Object.keys(carried)])) {
+      if ((unplaced[k] || 0) !== (carried[k] || 0)) return { ok: false, color: k, unplaced: unplaced[k] || 0, carried: carried[k] || 0 };
+    }
+    return { ok: true };
+  };
+
+  sim.snapshot = () => ({
+    status: sim.status, failReason: sim.failReason, ptr: ptr.slice(),
+    lanes: lanes.map(l => l.map(c => c.id)), boxes: sim.boxes.map(b => (b ? b.id : null)),
+    inFlight: sim.inFlight.map(c => c.id), cats: cats.map(c => ({ id: c.id, color: c.color, count: c.count, where: c.where })),
+  });
+
+  return sim;
+}
+
+const CORE = { CONFIG, mulberry32, makeRng, hashSeed, PALETTE, SYMBOLS, LEVELS, BACKTEST, LevelError, columns, parseLane, laneToString,
+               colorCounts, loadLevel, validateBakedLevels, GEN, createSim };
+if (typeof module !== 'undefined' && module.exports) module.exports = CORE;
+</script>
+<script id="app">
+'use strict';
+/* =====================================================================
+   SHELF CONTROL — presentation
+   Sections: AUDIO → RENDER → ACTORS → INPUT → UI/SCREENS → DEBUG/TELEMETRY → BOOT
+   Everything here may touch the DOM, time and Math.random. The core above may not.
+   ===================================================================== */
+(() => {
+const DW = 390, DH = 844;                       // design space (plan §6.1)
+const T = { wallTop:'#FFE3EC', wallBottom:'#E4D7FF', well:'#2A2140', frame:'#4A3A6A', frameLight:'#6A5590',
+            wood:'#B07A4E', woodEdge:'#8E5F3A', woodLight:'#C99368', rope:'#E8C79A', card:'#D9A66B', cardDark:'#B9854F',
+            cardLight:'#EBC08A', ink:'#33284F', danger:'#FF5A6E', white:'#FFFFFF', pink:'#FF9CCB' };
+const FONT = 'Fredoka, ui-rounded, "Nunito", system-ui, sans-serif';
+
+// ------------------------------ utils ------------------------------
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const easeOut = (t) => 1 - (1 - t) * (1 - t);
+const easeIn = (t) => t * t;
+const easeInOut = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+const easeOutBack = (t) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+function hexToRgb(hex) { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function rgbToHex([r, g, b]) { return '#' + [r, g, b].map(v => clamp(Math.round(v), 0, 255).toString(16).padStart(2, '0')).join(''); }
+function mix(hexA, hexB, t) { const a = hexToRgb(hexA), b = hexToRgb(hexB); return rgbToHex([lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]); }
+const darken = (hex, t) => mix(hex, '#000000', t);
+const lighten = (hex, t) => mix(hex, '#FFFFFF', t);
+function rgba(hex, a) { const [r, g, b] = hexToRgb(hex); return `rgba(${r},${g},${b},${a})`; }
+function roundRect(ctx, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
+}
+const rand = (a, b) => a + Math.random() * (b - a);
+const fmtTime = (s) => { s = Math.round(s); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+const $ = (sel) => document.querySelector(sel);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const vibrate = (ms) => { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) { /* unsupported */ } };
+
+// ------------------------------ persistence ------------------------------
+const Store = (() => {
+  const mem = {}; let ls = null;
+  try { ls = window.localStorage; ls.setItem('sc.__probe', '1'); ls.removeItem('sc.__probe'); } catch (e) { ls = null; }
+  return {
+    available: !!ls,
+    get(k, def) { try { const v = ls ? ls.getItem(k) : mem[k]; return v == null ? def : JSON.parse(v); } catch (e) { return def; } },
+    set(k, v) { const s = JSON.stringify(v); mem[k] = s; try { if (ls) ls.setItem(k, s); } catch (e) { /* storage blocked: keep in memory */ } },
+    clear() { for (const k of Object.keys(mem)) delete mem[k]; try { if (ls) for (const k of Object.keys(ls)) if (k.startsWith('sc.')) ls.removeItem(k); } catch (e) { /* ignore */ } },
+  };
+})();
+const settings = Object.assign({ sound: CONFIG.sound, symbols: CONFIG.symbols, assist: CONFIG.assist, motion: 'auto', seenTips: {} }, Store.get('sc.settings', {}));
+const progress = Object.assign({ done: {} }, Store.get('sc.progress', {}));
+const saveSettings = () => { Store.set('sc.settings', settings); applyMotionClass(); };
+const saveProgress = () => Store.set('sc.progress', progress);
+const mediaReduced = (() => { try { return window.matchMedia('(prefers-reduced-motion: reduce)'); } catch (e) { return { matches: false }; } })();
+const reducedMotion = () => (settings.motion === 'on' ? true : settings.motion === 'off' ? false : !!mediaReduced.matches);
+/** CSS animations (tutorial hand, tip fade) read the same preference through a root class. */
+function applyMotionClass() { try { document.documentElement.classList.toggle('reduced-motion', reducedMotion()); } catch (e) { /* no DOM */ } }
+applyMotionClass();
+try { if (mediaReduced.addEventListener) mediaReduced.addEventListener('change', applyMotionClass); } catch (e) { /* ignore */ }
+
+// ------------------------------ AUDIO (plan §10) ------------------------------
+const Audio = (() => {
+  let ctx = null, master = null, noiseBuf = null;
+  const voices = [];                                   // { g, end } — polyphony 12, steal the oldest
+  const PENTA = [0, 2, 4, 7, 9];                       // C major pentatonic
+  function init() {
+    if (ctx) { if (ctx.state === 'suspended') ctx.resume().catch(() => {}); return; }
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    try {
+      ctx = new AC();
+      const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -18; comp.ratio.value = 6;
+      master = ctx.createGain(); master.gain.value = 0.5; master.connect(comp); comp.connect(ctx.destination);
+      noiseBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.12), ctx.sampleRate);
+      const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    } catch (e) { ctx = null; }
+  }
+  const on = () => !!ctx && settings.sound && ctx.state === 'running';
+  function voice(dur) {
+    const now = ctx.currentTime;
+    for (let i = voices.length - 1; i >= 0; i--) if (voices[i].end <= now) voices.splice(i, 1);
+    while (voices.length >= 12) {
+      const v = voices.shift();
+      try { v.g.gain.cancelScheduledValues(now); v.g.gain.setValueAtTime(v.g.gain.value, now); v.g.gain.linearRampToValueAtTime(0.0001, now + 0.02); } catch (e) { /* ignore */ }
+    }
+    const g = ctx.createGain(); g.connect(master); voices.push({ g, end: now + dur }); return g;
+  }
+  function env(g, t, peak, attack, decay, mode = 'exp') {
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + attack);
+    if (mode === 'exp') g.gain.exponentialRampToValueAtTime(0.0005, t + attack + decay); else g.gain.linearRampToValueAtTime(0.0001, t + attack + decay);
+  }
+  function osc(type, f, t0, t1, dest, detune = 0) {
+    const o = ctx.createOscillator(); o.type = type; o.frequency.setValueAtTime(f, t0); if (detune) o.detune.value = detune;
+    o.connect(dest); o.start(t0); o.stop(t1 + 0.02); return o;
+  }
+  function ladderFreq(step) { const s = clamp(step, 0, 13); return 261.63 * Math.pow(2, (PENTA[s % 5] + 12 * Math.floor(s / 5)) / 12); }
+  /** marimba pluck on the pentatonic ladder (the single most important sound in the prototype) */
+  function pluck(step, vel = 1) {
+    if (!on()) return; const t = ctx.currentTime, f = ladderFreq(step), det = rand(-6, 6);
+    const g = voice(0.32); env(g, t, 0.42 * vel, 0.002, 0.18);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2200; lp.Q.value = 0.7; lp.connect(g);
+    osc('triangle', f, t, t + 0.3, lp, det);
+    const g2 = ctx.createGain(); g2.gain.value = 0.3; g2.connect(lp); osc('sine', f * 2, t, t + 0.3, g2, det);
+    if (step >= 13) {                                  // top of the ladder: hold with a little sparkle
+      const gs = voice(0.5); env(gs, t + 0.01, 0.12, 0.01, 0.4); osc('sine', f * 4, t, t + 0.5, gs, rand(-8, 8));
+    }
+  }
+  /** 30–60 ms filtered noise burst with a fast pitch-swept sine */
+  function burst({ f0 = 600, f1 = 200, dur = 0.05, band = 1200, q = 1.2, vol = 0.25, sweepVol = 0.2, type = 'bandpass' } = {}) {
+    if (!on()) return; const t = ctx.currentTime;
+    const g = voice(dur + 0.05); env(g, t, vol, 0.003, dur, 'lin');
+    const src = ctx.createBufferSource(); src.buffer = noiseBuf;
+    const bp = ctx.createBiquadFilter(); bp.type = type; bp.frequency.value = band; bp.Q.value = q; src.connect(bp); bp.connect(g); src.start(t); src.stop(t + dur + 0.02);
+    const gs = voice(dur + 0.05); env(gs, t, sweepVol, 0.002, dur, 'lin');
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur); o.connect(gs); o.start(t); o.stop(t + dur + 0.02);
+  }
+  const pop  = () => burst({ f0: 320, f1: 900, dur: 0.06, band: 1500, vol: 0.12, sweepVol: 0.22 });   // soft rising pop (tap accepted)
+  const tick = () => burst({ f0: 1800, f1: 1200, dur: 0.03, band: 3000, vol: 0.08, sweepVol: 0.06 });  // paw swipe
+  const thup = () => burst({ f0: 180, f1: 70, dur: 0.06, band: 260, q: 0.8, vol: 0.35, sweepVol: 0.3, type: 'lowpass' }); // cardboard
+  function deny() {                                    // two low muted notes
+    if (!on()) return; const t = ctx.currentTime;
+    for (let i = 0; i < 2; i++) { const g = voice(0.2); env(g, t + i * 0.09, 0.18, 0.005, 0.09); const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 500; lp.connect(g); osc('square', i ? 138 : 165, t + i * 0.09, t + i * 0.09 + 0.12, lp); }
+  }
+  function tone(f, t, dur, vol = 0.2, type = 'sine') { const g = voice(dur + 0.1); env(g, t, vol, 0.005, dur); osc(type, f, t, t + dur, g); }
+  function gliss() {                                   // row completed: short glissando chime
+    if (!on()) return; const t = ctx.currentTime;
+    for (let i = 0; i < 6; i++) tone(ladderFreq(4 + i), t + i * 0.035, 0.25, 0.1, 'triangle');
+  }
+  function arpeggio() {                                // cat empties: three-note rising arpeggio plus a synth "mrrp"
+    if (!on()) return; const t = ctx.currentTime;
+    [0, 2, 4].forEach((s, i) => tone(ladderFreq(5 + s), t + i * 0.07, 0.3, 0.16, 'triangle'));
+    const g = voice(0.4); env(g, t + 0.18, 0.12, 0.02, 0.28);
+    const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(330, t + 0.18); o.frequency.exponentialRampToValueAtTime(520, t + 0.32); o.frequency.exponentialRampToValueAtTime(400, t + 0.46);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900; o.connect(lp); lp.connect(g); o.start(t + 0.18); o.stop(t + 0.5);
+    const lfo = ctx.createOscillator(); lfo.frequency.value = 28; const lg = ctx.createGain(); lg.gain.value = 18; lfo.connect(lg); lg.connect(o.frequency); lfo.start(t + 0.18); lfo.stop(t + 0.5);
+  }
+  function relief() { if (!on()) return; const t = ctx.currentTime; tone(ladderFreq(6), t, 0.18, 0.18, 'triangle'); tone(ladderFreq(9), t + 0.11, 0.3, 0.2, 'triangle'); }
+  function fanfare() {
+    if (!on()) return; const t = ctx.currentTime;
+    [0, 2, 4, 5, 7, 9].forEach((s, i) => { tone(ladderFreq(s), t + i * 0.11, 0.35, 0.16, 'triangle'); tone(ladderFreq(s) * 2, t + i * 0.11, 0.2, 0.05, 'sine'); });
+    tone(ladderFreq(9) * 2, t + 0.7, 0.9, 0.08, 'sine');
+  }
+  function fail() {                                    // two falling notes, no harsh buzzer
+    if (!on()) return; const t = ctx.currentTime; tone(ladderFreq(4), t, 0.35, 0.18, 'triangle'); tone(ladderFreq(1), t + 0.28, 0.5, 0.18, 'triangle');
+  }
+  function heartbeat() {                               // low, heartbeat-like pulse for the full tray
+    if (!on()) return; const t = ctx.currentTime;
+    const g = voice(0.3); env(g, t, 0.22, 0.005, 0.16); const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(70, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.16); o.connect(g); o.start(t); o.stop(t + 0.2);
+  }
+  return { init, on, pluck, pop, tick, thup, deny, gliss, arpeggio, relief, fanfare, fail, heartbeat, ladderFreq };
+})();
+
+// ------------------------------ RENDER: layout (plan §8.1) ------------------------------
+function computeLayout(sim) {
+  const W = sim.W, H = sim.H, gap = 1.5;
+  const cell = Math.max(12, Math.min(30, Math.floor((326 - (W - 1) * gap) / W), Math.floor((316 - (H - 1) * gap) / H)));
+  const pitch = cell + gap;
+  const boardW = W * cell + (W - 1) * gap, boardH = H * cell + (H - 1) * gap;
+  const wellPad = 10, wellY = 196, wellH = 336, wellW = boardW + wellPad * 2, wellX = DW / 2 - wellW / 2;
+  const bx = DW / 2 - boardW / 2, by = wellY + wellH - wellPad - boardH;   // bottom-aligned: blocks stack from the floor
+  const shelfY = 176;                                                        // surface the cats walk on
+  const treeX = 19, treeBaseY = 628;                                         // cat tree hugs the left edge
+  const walkStartX = treeX, walkEndX = Math.min(368, bx + (W - 1) * pitch + cell / 2 + 0.8 * pitch);
+  const slidePts = [{ x: walkEndX, y: shelfY }, { x: 381, y: shelfY + 54 }, { x: 381, y: 492 }, { x: 362, y: 524 }];
+  const slideSeg = []; let slideLen = 0;
+  for (let i = 1; i < slidePts.length; i++) { const l = Math.hypot(slidePts[i].x - slidePts[i - 1].x, slidePts[i].y - slidePts[i - 1].y); slideSeg.push(l); slideLen += l; }
+  const slideStart = slidePts[0], slideEnd = slidePts[slidePts.length - 1];
+  const climbLen = treeBaseY - shelfY, walkLen = walkEndX - walkStartX;
+  function slidePoint(t) {
+    let d = clamp(t, 0, 1) * slideLen;
+    for (let i = 0; i < slideSeg.length; i++) {
+      if (d <= slideSeg[i] || i === slideSeg.length - 1) { const u = slideSeg[i] ? clamp(d / slideSeg[i], 0, 1) : 1; const a = slidePts[i], b = slidePts[i + 1]; return { x: lerp(a.x, b.x, u), y: lerp(a.y, b.y, u), ang: Math.atan2(b.y - a.y, b.x - a.x) }; }
+      d -= slideSeg[i];
+    }
+    return { x: slideEnd.x, y: slideEnd.y, ang: 0 };
+  }
+  const laneN = sim.lanes.length, laneSpacing = laneN <= 2 ? 150 : laneN === 3 ? 108 : 84;
+  const L = {
+    W, H, cell, gap, pitch, boardW, boardH, bx, by, wellX, wellY, wellW, wellH, wellPad, shelfY,
+    walkStartX, walkEndX, treeX, treeBaseY, slideStart, slideEnd, slidePts, slidePoint, climbLen, walkLen, slideLen, pathLen: climbLen + walkLen + slideLen,
+    shelfScale: clamp(cell * 0.0205, 0.42, 0.62), gapPx: pitch * 1.15,
+    laneN, laneSpacing, laneX: (i) => DW / 2 + (i - (laneN - 1) / 2) * laneSpacing, rugW: Math.min(92, laneSpacing - 10),
+    laneRows: [{ y: 704, s: 1.0, a: 1 }, { y: 758, s: 0.8, a: 0.92 }, { y: 802, s: 0.62, a: 0.6 }], chipY: 832,
+    flap: { x: 374, y: 818 },
+    cellX: (c) => bx + c * pitch, cellY: (row) => by + (H - 1 - row) * pitch,
+    cellCX: (c) => bx + c * pitch + cell / 2,
+    tray(n) {
+      const g = n <= 5 ? 8 : 6, w = Math.min(58, Math.floor((322 - (n - 1) * g) / n)), h = 58;
+      const x0 = DW / 2 - (n * w + (n - 1) * g) / 2;
+      return { n, w, h, g, y: 552, x: (i) => x0 + i * (w + g), cx: (i) => x0 + i * (w + g) + w / 2 };
+    },
+    pathPoint(s) {
+      if (s <= climbLen) return { x: treeX, y: treeBaseY - s, seg: 'climb' };
+      s -= climbLen;
+      if (s <= walkLen) return { x: walkStartX + s, y: shelfY, seg: 'walk' };
+      s -= walkLen; const sp = slidePoint(s / slideLen);
+      return { x: sp.x, y: sp.y, seg: 'slide', ang: sp.ang };
+    },
+    segSpeed(s) {                                    // px/s along the loop (plan §6.4 timings)
+      if (s < climbLen) return climbLen / 0.30;
+      if (s < climbLen + walkLen) return CONFIG.walkSpeed * pitch;
+      return slideLen / 0.40;
+    },
+  };
+  return L;
+}
+
+// ------------------------------ RENDER: sprites (plan §8.3) ------------------------------
+const Sprites = (() => {
+  const cache = new Map();
+  function block(color, sizePx, symbols) {
+    const key = `${color}:${sizePx}:${symbols ? 1 : 0}`;
+    let c = cache.get(key); if (c) return c;
+    c = document.createElement('canvas'); c.width = c.height = sizePx;
+    const g = c.getContext('2d'); const hex = PALETTE[color].hex, r = sizePx * 0.22;
+    roundRect(g, 0, 0, sizePx, sizePx, r); g.fillStyle = hex; g.fill();
+    g.save(); roundRect(g, 0, 0, sizePx, sizePx, r); g.clip();
+    g.fillStyle = 'rgba(255,255,255,0.28)'; g.fillRect(0, 0, sizePx, sizePx * 0.30);
+    g.fillStyle = 'rgba(0,0,0,0.14)'; g.fillRect(0, sizePx * 0.78, sizePx, sizePx * 0.22);
+    g.fillStyle = 'rgba(255,255,255,0.55)'; g.beginPath(); g.arc(sizePx * 0.27, sizePx * 0.27, sizePx * 0.075, 0, Math.PI * 2); g.fill();
+    if (symbols) {
+      g.font = `700 ${Math.round(sizePx * 0.52)}px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillStyle = 'rgba(255,255,255,0.45)'; g.fillText(SYMBOLS[color], sizePx / 2, sizePx / 2 + sizePx * 0.06 + 1);
+      g.fillStyle = 'rgba(51,40,79,0.45)'; g.fillText(SYMBOLS[color], sizePx / 2, sizePx / 2 + sizePx * 0.06);
+    }
+    g.restore();
+    cache.set(key, c); return c;
+  }
+  /** open ghost (20 % fill) or frontier ghost (+1.5 px outline at 70 %), plan §8.4 */
+  function ghost(color, sizePx, kind, symbols, cellPx) {
+    const key = `g:${color}:${sizePx}:${kind}:${symbols ? 1 : 0}`;
+    let c = cache.get(key); if (c) return c;
+    c = document.createElement('canvas'); c.width = c.height = sizePx;
+    const g = c.getContext('2d'); const hex = PALETTE[color].hex, r = sizePx * 0.22, k = sizePx / cellPx;
+    roundRect(g, 0, 0, sizePx, sizePx, r); g.fillStyle = rgba(hex, 0.20); g.fill();
+    if (kind === 'frontier') { const lw = 1.5 * k; roundRect(g, lw / 2, lw / 2, sizePx - lw, sizePx - lw, r); g.strokeStyle = rgba(hex, 0.70); g.lineWidth = lw; g.stroke(); }
+    if (symbols) { g.fillStyle = rgba(hex, 0.4); g.font = `700 ${Math.round(sizePx * 0.5)}px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(SYMBOLS[color], sizePx / 2, sizePx / 2 + sizePx * 0.05); }
+    cache.set(key, c); return c;
+  }
+  /** soft radial glow sprite (replaces shadowBlur, which is very expensive on software rasterisers) */
+  function glow(hex, sizePx) {
+    const key = `glow:${hex}:${sizePx}`;
+    let c = cache.get(key); if (c) return c;
+    c = document.createElement('canvas'); c.width = c.height = sizePx;
+    const g = c.getContext('2d'); const rg = g.createRadialGradient(sizePx / 2, sizePx / 2, sizePx * 0.15, sizePx / 2, sizePx / 2, sizePx / 2);
+    rg.addColorStop(0, rgba(hex, 0.7)); rg.addColorStop(1, rgba(hex, 0)); g.fillStyle = rg; g.fillRect(0, 0, sizePx, sizePx);
+    cache.set(key, c); return c;
+  }
+  return { block, ghost, glow, clear: () => cache.clear() };
+})();
+
+// ------------------------------ RENDER: cached layers ------------------------------
+// The wall and the static furniture (rugs, flap, tree, frame, shelf, slide) do not change between frames, so they are
+// rasterised once per view size / layout into offscreen canvases and blitted. Everything that moves is drawn on top.
+const Layers = (() => {
+  let wall = null, wallKey = '', scene = null, sceneKey = '', vignette = null, vignetteKey = '';
+  function ensureWall(view) {
+    const key = `${view.cw}x${view.ch}`; if (wall && wallKey === key) return wall;
+    wall = document.createElement('canvas'); wall.width = view.cw; wall.height = view.ch; wallKey = key;
+    drawWall(wall.getContext('2d'), view, true); return wall;
+  }
+  function ensureScene(view, L, drawStatic) {
+    const key = `${view.cw}x${view.ch}:${view.ox},${view.oy}:${L.W}x${L.H}:${L.laneN}`; if (scene && sceneKey === key) return scene;
+    scene = document.createElement('canvas'); scene.width = view.cw; scene.height = view.ch; sceneKey = key;
+    const g = scene.getContext('2d'); g.setTransform(view.S, 0, 0, view.S, view.ox, view.oy); drawStatic(g); return scene;
+  }
+  function ensureVignette(view) {
+    const key = `${view.cw}x${view.ch}:${view.ox},${view.oy}`; if (vignette && vignetteKey === key) return vignette;
+    vignette = document.createElement('canvas'); vignette.width = view.cw; vignette.height = view.ch; vignetteKey = key;
+    const g = vignette.getContext('2d'); g.setTransform(view.S, 0, 0, view.S, view.ox, view.oy);
+    const v = g.createRadialGradient(DW / 2, DH / 2, DH * 0.35, DW / 2, DH / 2, DH * 0.75); v.addColorStop(0, 'rgba(255,90,110,0)'); v.addColorStop(1, 'rgba(255,90,110,0.18)');
+    g.fillStyle = v; g.fillRect(0, 0, DW, DH); return vignette;
+  }
+  let board = null, boardKey = '';
+  /** the board's static cells (landed, open, frontier) keyed by logical state; reserved cells are left for the live pass */
+  function ensureBoard(view, key, drawCells) {
+    if (board && boardKey === key) return board;
+    if (!board || board.width !== view.cw || board.height !== view.ch) { board = document.createElement('canvas'); board.width = view.cw; board.height = view.ch; }
+    boardKey = key; const g = board.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, view.cw, view.ch);
+    g.setTransform(view.S, 0, 0, view.S, view.ox, view.oy); drawCells(g); return board;
+  }
+  return { ensureWall, ensureScene, ensureVignette, ensureBoard, clear() { wall = scene = vignette = board = null; wallKey = sceneKey = vignetteKey = boardKey = ''; } };
+})();
+
+// ------------------------------ RENDER: drawing primitives ------------------------------
+function ellipse(ctx, x, y, rx, ry, fill, stroke, lw) {
+  ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw || 2; ctx.stroke(); }
+}
+function ear(ctx, x, y, dir, size, hex, line, twist) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(twist || 0);
+  ctx.beginPath(); ctx.moveTo(-size * 0.55, size * 0.15); ctx.quadraticCurveTo(-size * 0.2 * dir, -size * 1.15, size * 0.55, size * 0.15); ctx.quadraticCurveTo(0, size * 0.35, -size * 0.55, size * 0.15);
+  ctx.fillStyle = hex; ctx.fill(); ctx.strokeStyle = line; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-size * 0.28, size * 0.1); ctx.quadraticCurveTo(-size * 0.1 * dir, -size * 0.6, size * 0.28, size * 0.1); ctx.closePath();
+  ctx.fillStyle = T.pink; ctx.fill();
+  ctx.restore();
+}
+/** Procedural cat (plan §8.5). o: {x,y,s,color,dir,bob,legPhase,tailPhase,squashX,squashY,look,blink,badge,badgePop,swipe,earTwitch,happy,alpha,tilt,dim} */
+function drawCat(ctx, o) {
+  const s = o.s || 1, dir = o.dir || 1, hex = PALETTE[o.color].hex;
+  const light = mix(hex, '#FFFFFF', 0.55), line = darken(hex, 0.25), eye = o.color === 'K' ? PALETTE.W.hex : T.ink;
+  ctx.save(); ctx.translate(o.x, o.y);
+  if (o.alpha != null) ctx.globalAlpha *= o.alpha;
+  if (o.tilt) ctx.rotate(o.tilt);
+  ctx.scale(s * (o.squashX || 1), s * (o.squashY || 1));
+  ctx.translate(0, -(o.bob || 0) / s);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  if (o.dim) ctx.globalAlpha *= 0.75;
+  // tail (thick curved stroke that sways)
+  const sway = Math.sin(o.tailPhase || 0) * 6;
+  ctx.beginPath(); ctx.moveTo(-dir * 17, 3); ctx.quadraticCurveTo(-dir * 36, 6 + sway * 0.4, -dir * 33, -18 + sway);
+  ctx.strokeStyle = line; ctx.lineWidth = 8.5; ctx.stroke(); ctx.strokeStyle = hex; ctx.lineWidth = 6; ctx.stroke();
+  // legs: two alternating small ellipses
+  const lp = o.legPhase; const lift = lp == null ? 0 : Math.sin(lp * Math.PI * 2) * 3;
+  ellipse(ctx, -9, 12 - Math.max(0, lift), 6, 4.5, hex, line, 2);
+  ellipse(ctx, 7, 12 - Math.max(0, -lift), 6, 4.5, hex, line, 2);
+  // body + belly
+  ellipse(ctx, 0, 0, 22, 14, hex, line, 2);
+  ellipse(ctx, 0, 4, 13, 7, light, null);
+  // head
+  const hx = dir * 18, hy = -8;
+  ear(ctx, hx - 9, hy - 11, -1, 11, hex, line, (o.earTwitch || 0) * -0.3);
+  ear(ctx, hx + 8, hy - 11, 1, 11, hex, line, (o.earTwitch || 0) * 0.3);
+  ellipse(ctx, hx, hy, 15, 15, hex, line, 2);
+  ellipse(ctx, hx + dir * 5, hy + 5, 7.5, 5.5, light, null);
+  // eyes
+  const lk = o.look || { dx: 0, dy: 0 }, ex = clamp(lk.dx, -1.6, 1.6), ey = clamp(lk.dy, -1.2, 1.2);
+  if (o.happy) {
+    ctx.strokeStyle = eye; ctx.lineWidth = 2;
+    for (const ox of [-5.5, 5.5]) { ctx.beginPath(); ctx.arc(hx + dir * 2 + ox, hy - 1, 2.6, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke(); }
+  } else {
+    const blink = clamp(o.blink || 0, 0, 1);
+    for (const ox of [-5.5, 5.5]) {
+      ellipse(ctx, hx + dir * 2 + ox + ex, hy - 2 + ey, 2.4, 2.4 * (1 - blink * 0.9), eye, null);
+      if (blink < 0.5) ellipse(ctx, hx + dir * 2 + ox + ex - 0.8, hy - 2.9 + ey, 0.9, 0.9, '#FFFFFF', null);
+    }
+  }
+  // nose + mouth
+  ctx.fillStyle = T.pink; ctx.beginPath(); ctx.moveTo(hx + dir * 9.5, hy + 3); ctx.lineTo(hx + dir * 12.5, hy + 3); ctx.lineTo(hx + dir * 11, hy + 5.5); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = line; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(hx + dir * 11, hy + 8, 2, Math.PI * 0.1, Math.PI * 0.9); ctx.stroke();
+  // paw swipe: front paw arcs forward
+  if (o.swipe != null && o.swipe >= 0 && o.swipe <= 1) {
+    const a = Math.sin(o.swipe * Math.PI);
+    ellipse(ctx, hx + dir * (2 + 16 * a), hy + 12 - 12 * a, 5.5, 4, hex, line, 2);
+  }
+  // badge: white pill above the head, bold ink number, pops on change
+  if (o.badge != null) {
+    const pop = o.badgePop ? 1 + 0.3 * Math.sin(clamp(o.badgePop, 0, 1) * Math.PI) : 1;
+    const txt = String(o.badge), w = 12 + 7.5 * txt.length, h = 16;
+    ctx.save(); ctx.translate(hx, hy - 31); ctx.scale(pop, pop);
+    roundRect(ctx, -w / 2, -h / 2, w, h, 8); ctx.fillStyle = '#FFFFFF'; ctx.fill(); ctx.strokeStyle = rgba(T.ink, 0.15); ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = txt === '✓' ? PALETTE.G.hex : T.ink; ctx.font = `700 12px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(o.symbol ? `${SYMBOLS[o.color]}${txt}` : txt, 0, 0.5);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+/** Boxed cat: ears, eyes and two paws over the rim (drawn between the box's back and front faces). */
+function drawBoxedCatHead(ctx, o) {
+  const hex = PALETTE[o.color].hex, line = darken(hex, 0.25), eye = o.color === 'K' ? PALETTE.W.hex : T.ink;
+  ctx.save(); ctx.translate(o.x, o.y - (o.bounce || 0)); ctx.scale(o.s || 1, o.s || 1);
+  ear(ctx, -9, -10, -1, 11, hex, line, (o.earTwitch || 0) * -0.3); ear(ctx, 8, -10, 1, 11, hex, line, (o.earTwitch || 0) * 0.3);
+  ellipse(ctx, 0, 2, 15, 15, hex, line, 2);
+  const lk = o.look || { dx: 0, dy: 0 }, ex = clamp(lk.dx, -1.8, 1.8), ey = clamp(lk.dy, -1.2, 1.2), blink = clamp(o.blink || 0, 0, 1);
+  for (const ox of [-5.5, 5.5]) {
+    ellipse(ctx, ox + ex, -1 + ey, 2.4, 2.4 * (1 - blink * 0.9), eye, null);
+    if (blink < 0.5) ellipse(ctx, ox + ex - 0.8, -1.9 + ey, 0.9, 0.9, '#FFFFFF', null);
+  }
+  ctx.restore();
+}
+function drawBoxedCatPaws(ctx, o) {
+  const hex = PALETTE[o.color].hex, line = darken(hex, 0.25);
+  ctx.save(); ctx.translate(o.x, o.y - (o.bounce || 0) * 0.6); ctx.scale(o.s || 1, o.s || 1);
+  ellipse(ctx, -8, 10, 5, 3.6, hex, line, 2); ellipse(ctx, 8, 10, 5, 3.6, hex, line, 2);
+  ctx.restore();
+}
+/** Cardboard box. o: {x,y,w,h, wobble, shiver, droop, bulge, glow, sat} — draws back first; call cb() between back and front for the cat. */
+function drawBox(ctx, o, between) {
+  const { x, y, w, h } = o;
+  ctx.save(); ctx.translate(x + w / 2, y + h);
+  const rot = (o.wobble || 0) * 0.06 + (o.shiver || 0) + (o.droop || 0) * 0.05;
+  ctx.rotate(rot); const b = 1 + (o.bulge || 0) * 0.08; ctx.scale(b, 1 + (o.bulge || 0) * 0.05 - (o.droop || 0) * 0.08);
+  ctx.translate(-w / 2, -h);
+  if (o.glow) { const gs = Math.max(8, Math.round((w + 40) * view.S)); ctx.save(); ctx.globalAlpha = 0.8 * o.glow; ctx.drawImage(Sprites.glow(o.glowColor || T.danger, gs), -20, h * 0.2 - 20, w + 40, h * 0.8 + 40); ctx.restore(); }
+  // interior (back)
+  roundRect(ctx, 0, h * 0.2, w, h * 0.8, 5); ctx.fillStyle = darken(T.cardDark, 0.35); ctx.fill();
+  // back flap
+  roundRect(ctx, 2, h * 0.02, w - 4, h * 0.26, 4); ctx.fillStyle = T.cardDark; ctx.fill();
+  if (between) between();
+  // front face
+  roundRect(ctx, 0, h * 0.34, w, h * 0.66, 6); ctx.fillStyle = T.card; ctx.fill();
+  ctx.fillStyle = rgba('#000000', 0.08); ctx.fillRect(0, h * 0.86, w, h * 0.14);
+  ctx.fillStyle = rgba('#FFFFFF', 0.18); ctx.fillRect(w * 0.44, h * 0.34, w * 0.12, h * 0.66);   // tape strip
+  // side flaps
+  ctx.save(); ctx.translate(2, h * 0.36); ctx.rotate(-0.35); roundRect(ctx, -w * 0.3, -6, w * 0.3, 12, 4); ctx.fillStyle = T.cardLight; ctx.fill(); ctx.restore();
+  ctx.save(); ctx.translate(w - 2, h * 0.36); ctx.rotate(0.35); roundRect(ctx, 0, -6, w * 0.3, 12, 4); ctx.fillStyle = T.cardLight; ctx.fill(); ctx.restore();
+  ctx.restore();
+}
+
+// ------------------------------ RENDER: scene ------------------------------
+function drawWall(ctx, view, raw) {
+  const { cw, ch } = view;
+  if (!raw) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(Layers.ensureWall(view), 0, 0); return; }
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const g = ctx.createLinearGradient(0, 0, 0, ch); g.addColorStop(0, T.wallTop); g.addColorStop(1, T.wallBottom);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, cw, ch);
+  const sun = ctx.createRadialGradient(cw * 0.2, ch * 0.05, 0, cw * 0.2, ch * 0.05, Math.max(cw, ch) * 0.7);
+  sun.addColorStop(0, 'rgba(255,248,220,0.55)'); sun.addColorStop(1, 'rgba(255,248,220,0)');
+  ctx.fillStyle = sun; ctx.fillRect(0, 0, cw, ch);
+  ctx.restore();
+}
+function drawTree(ctx, L) {
+  const x = L.treeX, top = L.shelfY - 2, base = L.treeBaseY + 14;
+  // base plinth
+  roundRect(ctx, x - 16, base - 4, 32, 12, 6); ctx.fillStyle = T.woodEdge; ctx.fill();
+  // post with sisal wrap
+  roundRect(ctx, x - 9, top, 18, base - top, 7); ctx.fillStyle = T.wood; ctx.fill();
+  ctx.fillStyle = rgba('#000000', 0.10); ctx.fillRect(x + 4, top + 6, 5, base - top - 12);
+  ctx.strokeStyle = T.rope; ctx.lineWidth = 3;
+  for (let y = top + 40; y < top + 230; y += 7) { ctx.beginPath(); ctx.moveTo(x - 8, y); ctx.lineTo(x + 8, y + 1.5); ctx.stroke(); }
+  // a small perch half way (decor)
+  roundRect(ctx, x - 6, top + 262, 24, 8, 4); ctx.fillStyle = T.woodEdge; ctx.fill();
+}
+function drawShelf(ctx, L, flash, plank = true) {
+  const x0 = L.treeX - 14, x1 = L.slidePts[1].x + 4, y = L.shelfY;
+  if (plank) {
+    roundRect(ctx, x0, y + 2, x1 - x0, 16, 4); ctx.fillStyle = T.woodEdge; ctx.fill();   // front edge
+    roundRect(ctx, x0, y - 2, x1 - x0, 9, 4); ctx.fillStyle = T.woodLight; ctx.fill();   // top face
+    ctx.fillStyle = rgba('#000000', 0.08); ctx.fillRect(x0 + 4, y + 12, x1 - x0 - 8, 3);
+  }
+  if (flash > 0) { roundRect(ctx, x0, y - 2, x1 - x0, 20, 4); ctx.fillStyle = rgba(T.danger, 0.6 * flash); ctx.fill(); }
+}
+function slidePath(ctx, pts, dx, dy) {
+  ctx.beginPath(); ctx.moveTo(pts[0].x + dx, pts[0].y + dy);
+  for (let i = 1; i < pts.length - 1; i++) {
+    const p = pts[i], n = pts[i + 1], mx = (p.x + n.x) / 2, my = (p.y + n.y) / 2;
+    ctx.quadraticCurveTo(p.x + dx, p.y + dy, mx + dx, my + dy);
+  }
+  const e = pts[pts.length - 1]; ctx.lineTo(e.x + dx, e.y + dy);
+}
+function drawSlide(ctx, L) {
+  const pts = L.slidePts, b = L.slideEnd;
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  slidePath(ctx, pts, 4, 8); ctx.strokeStyle = T.woodEdge; ctx.lineWidth = 16; ctx.stroke();
+  slidePath(ctx, pts, 4, 6); ctx.strokeStyle = T.wood; ctx.lineWidth = 11; ctx.stroke();
+  slidePath(ctx, pts, 2, 3); ctx.strokeStyle = rgba('#FFFFFF', 0.25); ctx.lineWidth = 3; ctx.stroke();
+  roundRect(ctx, b.x - 14, b.y + 10, 30, 10, 5); ctx.fillStyle = T.woodEdge; ctx.fill();   // lip at the end
+  ctx.restore();
+}
+function drawFrame(ctx, L, breathe) {
+  ctx.save();
+  if (breathe && breathe !== 1) { ctx.translate(DW / 2, L.wellY + L.wellH / 2); ctx.scale(breathe, breathe); ctx.translate(-DW / 2, -(L.wellY + L.wellH / 2)); }
+  roundRect(ctx, L.wellX - 9, L.wellY - 6, L.wellW + 18, L.wellH + 16, 14); ctx.fillStyle = T.frame; ctx.fill();
+  roundRect(ctx, L.wellX - 4, L.wellY - 2, L.wellW + 8, L.wellH + 8, 10); ctx.fillStyle = T.frameLight; ctx.fill();
+  roundRect(ctx, L.wellX, L.wellY, L.wellW, L.wellH, 8); ctx.fillStyle = T.well; ctx.fill();
+  // soft inner shadow
+  ctx.save(); roundRect(ctx, L.wellX, L.wellY, L.wellW, L.wellH, 8); ctx.clip();
+  const sh = ctx.createLinearGradient(0, L.wellY, 0, L.wellY + 26); sh.addColorStop(0, 'rgba(0,0,0,0.35)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = sh; ctx.fillRect(L.wellX, L.wellY, L.wellW, 26);
+  const shl = ctx.createLinearGradient(L.wellX, 0, L.wellX + 14, 0); shl.addColorStop(0, 'rgba(0,0,0,0.25)'); shl.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = shl; ctx.fillRect(L.wellX, L.wellY, 14, L.wellH);
+  const shr = ctx.createLinearGradient(L.wellX + L.wellW, 0, L.wellX + L.wellW - 14, 0); shr.addColorStop(0, 'rgba(0,0,0,0.25)'); shr.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = shr; ctx.fillRect(L.wellX + L.wellW - 14, L.wellY, 14, L.wellH);
+  ctx.restore();
+  ctx.restore();
+}
+function drawLaneRugs(ctx, L) {
+  for (let i = 0; i < L.laneN; i++) {
+    const x = L.laneX(i);
+    const w = L.rugW;
+    roundRect(ctx, x - w / 2, 668, w, 176, 18); ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.fill();
+    roundRect(ctx, x - w / 2 + 6, 674, w - 12, 164, 14); ctx.strokeStyle = 'rgba(51,40,79,0.08)'; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+}
+function drawFlap(ctx, L) {
+  const { x, y } = L.flap;
+  roundRect(ctx, x - 13, y - 32, 26, 38, 11); ctx.fillStyle = rgba(T.ink, 0.22); ctx.fill();
+  roundRect(ctx, x - 9, y - 26, 18, 28, 8); ctx.fillStyle = rgba(T.ink, 0.35); ctx.fill();
+  roundRect(ctx, x - 16, y + 4, 32, 8, 4); ctx.fillStyle = rgba(T.cardDark, 0.6); ctx.fill();
+}
+
+// ------------------------------ ACTORS + GAME STATE ------------------------------
+const view = { canvas: null, ctx: null, S: 1, scale: 1, dpr: 1, ox: 0, oy: 0, cw: 0, ch: 0 };
+const Game = {
+  sim: null, def: null, L: null, mode: 'build', actors: [], flight: [], blocks: [], settle: [], particles: [], texts: [], sweeps: [],
+  present: [], rowDone: [], time: 0, playTime: 0, queue: [], lastDispatchAt: -10, combo: { step: -1, last: -10 },
+  state: 'idle', stateT: 0, shelfFlash: 0, colNudge: [], graceHead: null, stuckT: 0, heartbeatT: 0, shiverT: 0, wave: -1,
+  continueUsed: false, lastDispatched: null, telemetry: [], fps: 60, extraDenied: 0, boxFx: [], winFired: false,
+  tut: {}, levelIndex: -1, initialFrontier: [],
+};
+
+function makeActor(cat) {
+  return { id: cat.id, cat, color: cat.color, state: 'lane', x: 0, y: 0, s: 1, dir: -1, t: 0, pathS: 0, seg: 'climb', moving: false, walkT: 0,
+    pending: [], shown: cat.count, badge: String(cat.count), badgePop: 0, swipe: -1, legPhase: null, tailPhase: Math.random() * 6.28,
+    blink: 0, nextBlink: rand(2, 6), earTwitch: 0, nextTwitch: rand(3, 9), squashX: 1, squashY: 1, shake: 0, wiggle: 0, happy: 0,
+    from: null, to: null, slot: -1, grace: 0, alpha: 1, bounce: 0, glow: 0, look: { dx: 0, dy: 0 }, tilt: 0,
+    lane: cat.lane, laneIndex: cat.laneIndex, dim: false, cheer: 0, hearts: 0, placedSoFar: 0 };
+}
+const actorOf = (id) => Game.actors[id];
+
+function laneTarget(a) {
+  const L = Game.L, idx = a.laneIndex, row = L.laneRows[Math.min(idx, 2)];
+  return idx >= 3 ? { x: L.laneX(a.lane), y: L.chipY, s: 0.35, alpha: 0 } : { x: L.laneX(a.lane), y: row.y, s: row.s, alpha: row.a };
+}
+function boxAnchor(slot) {
+  const tr = Game.L.tray(Game.sim.boxes.length);
+  return { x: tr.cx(slot), y: tr.y + tr.h * 0.40, tr };
+}
+function refreshLaneIndices() {
+  const sim = Game.sim;
+  sim.lanes.forEach((lane, li) => lane.forEach((cat, j) => { const a = actorOf(cat.id); a.laneIndex = j; a.lane = li; }));
+}
+
+// ---------- level lifecycle ----------
+function startLevel(def, opts = {}) {
+  const G = Game;
+  G.def = def; G.mode = opts.mode || (def.reverse ? 'yoink' : 'build');
+  if (G.mode === 'yoink' && !def.reverse) G.mode = 'build';         // baked lanes are only valid for build mode
+  G.sim = createSim(def, { mode: G.mode, trayCapacity: CONFIG.trayCapacity, shelfCapacity: CONFIG.shelfCapacity });
+  G.L = computeLayout(G.sim);
+  G.actors = G.sim.cats.map(makeActor);
+  G.flight = []; G.blocks = []; G.settle = []; G.particles = []; G.texts = []; G.sweeps = []; G.boxFx = [];
+  G.present = G.sim.cols.map(s => s.map(() => G.mode === 'yoink'));
+  G.rowDone = new Array(G.sim.H).fill(false);
+  G.time = 0; G.playTime = 0; G.queue = []; G.lastDispatchAt = -10; G.combo = { step: -1, last: -10 };
+  G.state = 'playing'; G.stateT = 0; G.shelfFlash = 0; G.colNudge = new Array(G.sim.W).fill(0); G.graceHead = null;
+  G.stuckT = 0; G.heartbeatT = 0; G.shiverT = 0; G.wave = -1; G.continueUsed = false; G.lastDispatched = null; G.extraDenied = 0; G.winFired = false; G.lastCard = null;
+  G.initialFrontier = G.sim.cols.map((s, c) => G.sim.frontierColor(c));
+  G.tut = { frontierChanged: false };
+  refreshLaneIndices();
+  for (const a of G.actors) { const t = laneTarget(a); a.x = t.x; a.y = t.y; a.s = t.s; a.alpha = t.alpha; }
+  UI.onLevelStart();
+}
+
+// ---------- input → dispatch (plan §6.4 buffering) ----------
+function enqueueTap(target) {
+  const G = Game; if (G.state !== 'playing') return;
+  if (G.queue.length >= CONFIG.tapBuffer) { G.extraDenied++; denyFeedback(resolveTarget(target), 'buffer'); return; }
+  G.queue.push(target); drainQueue();
+}
+function resolveTarget(t) {
+  const sim = Game.sim; if (!t) return null;
+  if (t.kind === 'lane') return sim.lanes[t.lane] && sim.lanes[t.lane][0] ? actorOf(sim.lanes[t.lane][0].id) : null;
+  if (t.kind === 'box') return sim.boxes[t.slot] ? actorOf(sim.boxes[t.slot].id) : null;
+  return null;
+}
+function drainQueue() {
+  const G = Game;
+  while (G.queue.length && G.state === 'playing' && G.time - G.lastDispatchAt >= CONFIG.minDispatchGap) fireTap(G.queue.shift());
+}
+function fireTap(target) {
+  const G = Game, sim = G.sim; const a = resolveTarget(target); if (!a) return;
+  const r = sim.dispatch(a.id);
+  if (!r.ok) { denyFeedback(a, r.reason); return; }
+  const wasBoxed = r.from === 'box';
+  startHop(a, r.placements);
+  if (wasBoxed) { G.boxFx[r.fromSlot] = { bulge: 0, t: 0 }; seatWaiting(sim.assignWaiting(), false); }
+  else { refreshLaneIndices(); }
+  UI.tutorialEvent('dispatch');
+}
+function startHop(a, placements) {
+  const G = Game, L = G.L;
+  a.pending = placements.slice(); a.state = 'hop'; a.t = 0;
+  a.from = { x: a.x, y: a.y, s: a.s }; a.to = { x: L.treeX, y: L.treeBaseY - 15 * L.shelfScale };
+  a.squashY = 0.85; a.squashX = 1.12; a.dir = -1; a.alpha = 1; a.tilt = 0; a.bounce = 0; a.glow = 0; a.slot = -1; a.dim = false;
+  G.flight.push(a); G.lastDispatched = a; G.lastDispatchAt = G.time;
+  Audio.pop();
+}
+function denyFeedback(a, reason) {
+  const G = Game;
+  if (a) { a.shake = 1; }
+  if (reason === 'shelf_full') { G.shelfFlash = 1; Audio.deny(); }
+  else if (reason === 'nothing_to_place') { if (a) addText(a.x, a.y - 40, '?', T.ink, 22, 0.8); Audio.deny(); }
+  else if (reason === 'buffer' || reason === 'not_tappable') { Audio.deny(); }
+  else if (reason === 'not_playing') { /* silent */ }
+  else Audio.deny();
+}
+function wiggleLaneFront(lane) {
+  const cat = Game.sim.lanes[lane] && Game.sim.lanes[lane][0]; if (!cat) return;
+  actorOf(cat.id).wiggle = 1; Game.extraDenied++;
+}
+
+// ---------- arrivals, boxes, grace ----------
+function arriveActor(a) {
+  const G = Game, r = G.sim.arrive(a.id);
+  if (r.to === 'exit') { a.state = 'exit'; a.t = 0; a.from = { x: a.x, y: a.y, s: a.s }; }
+  else if (r.to === 'box') startBoxHop(a, r.slot, false);
+  else if (r.to === 'wait') { a.state = 'wait'; a.t = 0; a.grace = 0; a.pathS = G.L.pathLen; }
+}
+function startBoxHop(a, slot, isSave) {
+  const G = Game; a.state = 'boxhop'; a.slot = slot; a.t = 0; a.tilt = 0;
+  a.from = { x: a.x, y: a.y, s: a.s }; const b = boxAnchor(slot); a.to = { x: b.x, y: b.y - 6, s: 1 };
+  if (isSave) { addText(a.x, a.y - 44, 'Phew!', PALETTE.G.hex, 20, 1.1); Audio.relief(); }
+}
+function seatWaiting(assignments, isContinue) {
+  for (const { catId, slot } of assignments) { const a = actorOf(catId); startBoxHop(a, slot, !isContinue); }
+}
+function graceExpire(a) {
+  const G = Game; if (!G.sim.graceExpired(a.id)) return;
+  a.tilt = 0; a.flop = 1; startFail('no_box');
+}
+function startFail(reason) {
+  const G = Game; G.state = 'failing'; G.stateT = 0; G.failReason = reason; G.queue = [];
+  Audio.fail();
+}
+function startWin() {
+  const G = Game; G.state = 'winning'; G.stateT = 0; G.wave = 0; G.queue = [];
+  Audio.fanfare(); vibrate(20);
+  const n = reducedMotion() ? 18 : 90;
+  for (let i = 0; i < n; i++) addParticle('confetti', rand(G.L.wellX, G.L.wellX + G.L.wellW), G.L.wellY - 10, rand(-60, 60), rand(-160, -40), rand(1.4, 2.4),
+    PALETTE[Object.keys(PALETTE)[Math.floor(Math.random() * 10)]].hex, rand(4, 7));
+  for (const a of G.actors) if (a.state !== 'gone') a.cheer = 1;
+}
+function useContinue() {
+  const G = Game; if (G.continueUsed) return false;
+  G.continueUsed = true; const r = G.sim.addBox();
+  for (const a of G.actors) if (a.state === 'wait') { a.flop = 0; a.tilt = 0; }
+  G.state = 'playing'; G.stateT = 0; G.stuckT = 0; G.lastCard = null;
+  seatWaiting(r.seated, true);
+  addText(DW / 2, 540, '+1 box', PALETTE.G.hex, 22, 1.2);
+  Audio.relief();
+  return true;
+}
+
+// ---------- drops and landings (plan §6.4, §9) ----------
+function triggerDrop(a, p) {
+  const G = Game, L = G.L;
+  a.swipe = 0; a.shown = Math.max(0, a.shown - 1); a.badge = a.shown > 0 ? String(a.shown) : '✓'; a.badgePop = 1; a.placedSoFar++;
+  Audio.tick();
+  const x = L.cellX(p.col), yShelf = L.shelfY + 6, yCell = L.cellY(p.row);
+  if (G.mode === 'build') {
+    const rows = (yCell - yShelf) / L.pitch;
+    G.blocks.push({ col: p.col, row: p.row, color: p.color, x, y0: yShelf, y1: yCell, t: 0, dur: 0.12 + 0.11 * Math.sqrt(Math.max(0, rows)), up: false });
+  } else {
+    const rows = (yCell - yShelf) / L.pitch;
+    G.present[p.col][p.row] = false;                                          // the block leaves its cell as it pops up
+    G.blocks.push({ col: p.col, row: p.row, color: p.color, x, y0: yCell, y1: yShelf, t: 0, dur: 0.10 + 0.08 * Math.sqrt(Math.max(0, rows)), up: true });
+  }
+  if (a.shown === 0) { a.happy = 1; a.hearts = 1; a.cheer = 0.6; Audio.arpeggio(); addParticle('heart', a.x - 6, a.y - 34 * a.s, -18, -40, 1.1, T.pink, 7); addParticle('heart', a.x + 8, a.y - 30 * a.s, 22, -46, 1.0, T.pink, 6); }
+}
+function onLanding(b) {
+  const G = Game, L = G.L, sim = G.sim;
+  if (!b.up) G.present[b.col][b.row] = true;
+  G.settle.push({ col: b.col, row: b.row, t: 0 });
+  G.colNudge[b.col] = 1;
+  const n = reducedMotion() ? 1 : 4, cx = b.x + L.cell / 2, cy = b.up ? b.y1 : b.y1 + L.cell;
+  for (let i = 0; i < n; i++) addParticle('dust', cx + rand(-L.cell * 0.4, L.cell * 0.4), cy, rand(-40, 40), b.up ? rand(-50, -10) : rand(-30, -5), rand(0.25, 0.45), 'rgba(255,244,224,0.85)', rand(2.5, 4.5));
+  // landing melody: pentatonic ladder while landings keep coming within comboWindow
+  if (G.time - G.combo.last <= CONFIG.comboWindow) G.combo.step = Math.min(G.combo.step + 1, 13); else G.combo.step = 0;
+  G.combo.last = G.time;
+  Audio.pluck(G.combo.step); vibrate(8);
+  // row completed?
+  const row = b.row;
+  if (!G.rowDone[row]) {
+    let done = true;
+    for (let c = 0; c < L.W; c++) { const has = row < sim.cols[c].length; if (!has) continue; if (G.mode === 'build' ? !G.present[c][row] : G.present[c][row]) { done = false; break; } }
+    if (done) { G.rowDone[row] = true; G.sweeps.push({ row, t: 0 }); Audio.gliss(); }
+  }
+  // tutorial: first frontier colour change
+  if (!G.tut.frontierChanged && sim.frontierColor(b.col) !== G.initialFrontier[b.col]) { G.tut.frontierChanged = true; UI.tutorialEvent('frontier'); }
+}
+
+// ---------- particles / floating text ----------
+function addParticle(kind, x, y, vx, vy, ttl, color, size) {
+  const G = Game; let p = null;
+  for (const q of G.particles) if (q.dead) { p = q; break; }
+  if (!p) { if (G.particles.length > 400) return; p = {}; G.particles.push(p); }
+  Object.assign(p, { kind, x, y, vx, vy, t: 0, ttl, color, size, rot: rand(0, 6.28), vr: rand(-6, 6), dead: false });
+}
+function addText(x, y, text, color, size, ttl) { Game.texts.push({ x, y, text, color, size, t: 0, ttl }); }
+
+// ---------- fixed-step update ----------
+function update(dt) {
+  const G = Game, sim = G.sim; if (!sim) return;
+  const L = G.L;
+  G.time += dt; G.stateT += dt;
+  if (G.state === 'playing') G.playTime += dt;
+  G.shelfFlash = Math.max(0, G.shelfFlash - dt * 5);
+  for (let c = 0; c < L.W; c++) G.colNudge[c] = Math.max(0, G.colNudge[c] - dt / 0.14);
+  drainQueue();
+
+  // --- cats on the loop, in dispatch order (no overtaking: hold behind the predecessor) ---
+  let head = null;
+  for (let i = 0; i < G.flight.length; i++) {
+    const a = G.flight[i], prev = i > 0 ? G.flight[i - 1] : null;
+    if (a.state === 'hop') {
+      a.t += dt; const u = clamp(a.t / 0.22, 0, 1), e = easeInOut(u);
+      a.x = lerp(a.from.x, a.to.x, e); a.y = lerp(a.from.y, a.to.y, e) - Math.sin(u * Math.PI) * 70; a.s = lerp(a.from.s, L.shelfScale, u);
+      if (u >= 1) { a.state = 'path'; a.pathS = 0; a.x = a.to.x; a.y = a.to.y; a.dir = 1; a.walkT = 0; }
+    } else if (a.state === 'path') {
+      let maxS = Infinity;
+      if (prev && (prev.state === 'path' || prev.state === 'wait')) maxS = prev.pathS - L.gapPx;
+      const v = L.segSpeed(a.pathS); let ns = Math.min(a.pathS + v * dt, maxS); if (ns < a.pathS) ns = a.pathS;
+      a.moving = ns > a.pathS + 1e-9; a.pathS = ns;
+      const p = L.pathPoint(a.pathS); a.seg = p.seg; a.x = p.x; a.y = p.y - 15 * a.s; a.dir = 1;
+      if (p.seg === 'walk') {
+        if (a.moving) a.walkT += dt;
+        a.legPhase = (a.walkT * 3) % 1; a.tilt = 0;
+        while (a.pending.length && a.x >= L.cellCX(a.pending[0].col)) triggerDrop(a, a.pending.shift());
+      } else if (p.seg === 'slide') { a.legPhase = null; a.tilt = clamp((p.ang || 0) * 0.45, 0, 0.75); a.squashY = lerp(a.squashY, 1.06, 0.2); }
+      else { a.legPhase = (a.walkT += dt * 1.5) % 1; a.tilt = -0.15; }
+      if (a.pathS >= L.pathLen - 0.01) arriveActor(a);
+    } else if (a.state === 'wait') {
+      a.t += dt;
+      if (!head) { head = a; a.grace += dt; a.tilt = reducedMotion() ? 0 : Math.sin(a.t * 9) * 0.10; if (a.grace >= CONFIG.graceSeconds && G.state === 'playing') graceExpire(a); }
+      else a.tilt = 0;
+    }
+  }
+  G.graceHead = head;
+  G.flight = G.flight.filter(a => a.state === 'hop' || a.state === 'path' || a.state === 'wait');
+
+  // --- resting actors + shared per-actor animation ---
+  const trayNow = L.tray(sim.boxes.length);
+  const graceActive = !!head;
+  for (const a of G.actors) {
+    if (a.state === 'gone') continue;
+    // shared timers
+    a.tailPhase += dt * (a.state === 'path' ? 7 : 2.2);
+    if (a.badgePop > 0) a.badgePop = Math.max(0, a.badgePop - dt / 0.22);
+    if (a.swipe >= 0) { a.swipe += dt / 0.09; if (a.swipe > 1) a.swipe = -1; }
+    if (a.shake > 0) a.shake = Math.max(0, a.shake - dt / 0.18);
+    if (a.wiggle > 0) a.wiggle = Math.max(0, a.wiggle - dt / 0.3);
+    if (a.happy > 0) a.happy = Math.max(0, a.happy - dt / 0.5);
+    if (a.cheer > 0) a.cheer = Math.max(0, a.cheer - dt / 1.2);
+    a.squashX += (1 - a.squashX) * Math.min(1, dt * 14); a.squashY += (1 - a.squashY) * Math.min(1, dt * 14);
+    a.nextBlink -= dt; if (a.nextBlink <= 0) { a.blink = 1; a.nextBlink = rand(2.5, 6); }
+    if (a.blink > 0) a.blink = Math.max(0, a.blink - dt / 0.12);
+    a.nextTwitch -= dt; if (a.nextTwitch <= 0) { a.earTwitch = 1; a.nextTwitch = rand(3, 9); }
+    if (a.earTwitch > 0) a.earTwitch = Math.max(0, a.earTwitch - dt / 0.25);
+    const canPlace = (a.state === 'lane' || a.state === 'box') && sim.isTappable(a.cat) ? sim.canPlaceNow(a.cat) : 0;
+    if (a.state === 'lane') {
+      const t = laneTarget(a); const k = Math.min(1, dt * 11);
+      a.x += (t.x - a.x) * k; a.y += (t.y - a.y) * k; a.s += (t.s - a.s) * k; a.alpha += (t.alpha - a.alpha) * k; a.dir = -1;
+      a.dim = a.laneIndex === 2; a.legPhase = null; a.tilt = 0;
+      const front = a.laneIndex === 0;
+      if (front && settings.assist && canPlace > 0 && G.state === 'playing') { a.bounce = Math.abs(Math.sin(G.time * 4.5 + a.id)) * 4; a.look = { dx: -1, dy: 0 }; }
+      else { a.bounce = 0; a.look = front && settings.assist && canPlace === 0 ? { dx: 1.5, dy: 0.6 } : { dx: 0, dy: 0 }; }
+      if (a.cheer > 0) a.bounce = Math.abs(Math.sin(G.time * 12)) * 10 * a.cheer;
+    } else if (a.state === 'boxhop') {
+      a.t += dt; const u = clamp(a.t / 0.25, 0, 1), e = easeInOut(u);
+      a.x = lerp(a.from.x, a.to.x, e); a.y = lerp(a.from.y, a.to.y, e) - Math.sin(u * Math.PI) * 50; a.s = lerp(a.from.s, 1, u); a.tilt = 0;
+      if (u >= 1) { a.state = 'box'; a.t = 0; Audio.thup(); G.boxFx[a.slot] = { bulge: 1, t: 0 }; UI.tutorialEvent('boxed'); }
+    } else if (a.state === 'box') {
+      const b = boxAnchor(a.slot); a.x = b.x; a.y = b.y; a.s = 1; a.alpha = 1;
+      // eyes track the most recently dispatched cat
+      const tgt = G.lastDispatched && G.lastDispatched !== a && G.lastDispatched.state !== 'gone' ? G.lastDispatched : null;
+      a.look = tgt ? { dx: (tgt.x - a.x) / 60, dy: (tgt.y - a.y) / 120 } : { dx: 0, dy: 0 };
+      if (graceActive && canPlace > 0) { a.bounce = reducedMotion() ? 4 : Math.abs(Math.sin(G.time * 19)) * 9; a.glow = 1; }
+      else if (settings.assist && canPlace > 0 && G.state === 'playing') { a.bounce = Math.abs(Math.sin(G.time * 4.5 + a.id)) * 3; a.glow = 0; }
+      else { a.bounce = 0; a.glow = 0; }
+      if (a.cheer > 0) a.bounce = Math.abs(Math.sin(G.time * 12)) * 8 * a.cheer;
+    } else if (a.state === 'exit') {
+      a.t += dt; const u = clamp(a.t / 0.5, 0, 1), e = easeIn(u);
+      a.x = lerp(a.from.x, L.flap.x, e); a.y = lerp(a.from.y, L.flap.y - 12, e) - Math.sin(u * Math.PI) * 30; a.s = lerp(a.from.s, 0.45, u); a.alpha = 1 - Math.max(0, u - 0.7) / 0.3;
+      a.dir = 1; a.tilt = 0; a.legPhase = (a.walkT += dt * 3) % 1;
+      if (u >= 1) { a.state = 'gone'; a.alpha = 0; }
+    }
+  }
+
+  // --- box FX ---
+  for (const slot in G.boxFx) { const f = G.boxFx[slot]; if (!f) continue; f.t += dt; if (f.t > 0.35) delete G.boxFx[slot]; }
+
+  // --- falling / rising blocks ---
+  for (let i = G.blocks.length - 1; i >= 0; i--) {
+    const b = G.blocks[i]; b.t += dt;
+    if (b.t >= b.dur) { G.blocks.splice(i, 1); onLanding(b); }
+  }
+  for (let i = G.settle.length - 1; i >= 0; i--) { const s = G.settle[i]; s.t += dt; if (s.t > 0.14) G.settle.splice(i, 1); }
+  for (let i = G.sweeps.length - 1; i >= 0; i--) { const s = G.sweeps[i]; s.t += dt; if (s.t > 0.3) G.sweeps.splice(i, 1); }
+  if (G.wave >= 0) { G.wave += dt; if (G.wave > 1.4) G.wave = -1; }
+
+  // --- particles / texts ---
+  for (const p of G.particles) {
+    if (p.dead) continue; p.t += dt; if (p.t >= p.ttl) { p.dead = true; continue; }
+    const gEff = p.kind === 'dust' ? 60 : p.kind === 'heart' ? 20 : 240;
+    p.vy += gEff * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
+    if (p.kind === 'confetti') p.vx *= 0.995;
+  }
+  for (let i = G.texts.length - 1; i >= 0; i--) { const t = G.texts[i]; t.t += dt; t.y -= 26 * dt; if (t.t >= t.ttl) G.texts.splice(i, 1); }
+
+  // --- tray expressiveness (plan §8.6) ---
+  const used = sim.boxesUsed(), cap = sim.boxes.length;
+  if (used >= cap && G.state === 'playing') {
+    G.heartbeatT += dt; if (G.heartbeatT >= 0.9) { G.heartbeatT = 0; Audio.heartbeat(); }
+    G.shiverT += dt; if (G.shiverT >= 2) G.shiverT = 0;
+  } else { G.heartbeatT = 0.6; G.shiverT = 0; }
+
+  // --- stuck detection (plan §4.7) ---
+  if (G.state === 'playing' && G.queue.length === 0 && G.blocks.length === 0 && sim.isStuck()) {
+    G.stuckT += dt; if (G.stuckT >= CONFIG.stuckBeat) { G.stuckT = 0; sim.failStuck(); startFail('stuck'); }
+  } else G.stuckT = 0;
+
+  // --- win: logical completion at the final dispatch, celebration when the last block lands ---
+  if (G.state === 'playing' && sim.status === 'won' && G.blocks.length === 0 && G.actors.every(a => a.pending.length === 0)) startWin();
+
+  // --- end-of-level sequences ---
+  if (G.state === 'winning' && G.stateT >= 1.4) { G.state = 'won'; finishLevel('won', null); }
+  if (G.state === 'failing' && G.stateT >= 0.8) { G.state = 'failed'; finishLevel('failed', G.failReason); }
+}
+
+function finishLevel(result, reason) {
+  const G = Game, sim = G.sim, st = sim.stats;
+  const rec = { level: G.def.id, art: G.def.artId || (G.def.id.startsWith('gen-') ? null : G.def.id), preset: G.def.preset || null, seed: G.def.seed ?? null, mode: G.mode,
+    trayCapacity: sim.boxes.length - st.continuesUsed, shelfCapacity: sim.shelfCapacity, result, reason, timeSec: Math.round(G.playTime * 10) / 10,
+    dispatches: st.dispatches, zeroPlaceDispatches: st.zeroPlaceDispatches, maxBoxesUsed: st.maxBoxesUsed, graceSaves: st.graceSaves,
+    continuesUsed: st.continuesUsed, deniedTaps: st.deniedTaps + G.extraDenied };
+  G.telemetry.push(rec); console.log('[shelf-control telemetry]', JSON.stringify(rec));
+  if (result === 'won' && !G.def.id.startsWith('gen-')) {
+    const prev = progress.done[G.def.id];
+    progress.done[G.def.id] = { timeSec: prev ? Math.min(prev.timeSec, rec.timeSec) : rec.timeSec, dispatches: rec.dispatches, when: Date.now() };
+    saveProgress();
+  }
+  UI.showCard(result, reason, rec);
+}
+
+// ------------------------------ RENDER: frame ------------------------------
+function cellState(c, row) {
+  const G = Game, sim = G.sim, seq = G.mode === 'yoink' ? sim.cols[c].length - 1 - row : row, p = sim.ptr[c];
+  if (G.mode === 'build') { if (G.present[c][row]) return 'landed'; if (seq < p) return 'reserved'; if (seq === p) return 'frontier'; return 'open'; }
+  if (!G.present[c][row]) return 'empty'; if (seq < p) return 'reserved'; if (seq === p) return 'frontier'; return 'solid';
+}
+/**
+ * mode 'all': every cell live (used while a column nudges or a block settles, and while the frame breathes).
+ * mode 'static': only cells whose look does not change frame to frame (landed / solid / open / frontier) — cached by Layers.
+ * mode 'live': only the cells the cache leaves out (reserved cells pulse).
+ */
+function drawBoard(ctx, mode = 'all') {
+  const G = Game, L = G.L, sim = G.sim, cell = L.cell, spx = Math.max(4, Math.round(cell * view.S)), sym = settings.symbols;
+  const pulse = 0.40 + 0.06 * Math.sin(G.time * 5);
+  ctx.save();
+  for (let c = 0; c < L.W; c++) {
+    const nudge = G.colNudge[c] > 0 ? 2 * Math.sin(G.colNudge[c] * Math.PI) : 0;
+    const len = sim.cols[c].length;
+    for (let row = 0; row < len; row++) {
+      const st = cellState(c, row); if (st === 'empty') continue;
+      if (mode === 'static' && st === 'reserved') continue;
+      if (mode === 'live' && st !== 'reserved') continue;
+      const x = L.cellX(c), y = L.cellY(row) + nudge, color = sim.cols[c][G.mode === 'yoink' ? len - 1 - row : row], hex = PALETTE[color].hex;
+      if (st === 'landed' || st === 'solid' || (st === 'frontier' && G.mode === 'yoink') || (st === 'reserved' && G.mode === 'yoink')) {
+        let sy = 1, sx = 1;
+        for (const s of G.settle) if (s.col === c && s.row === row) { const u = s.t / 0.14; sy = u < 0.5 ? lerp(0.70, 1.08, u / 0.5) : lerp(1.08, 1.0, (u - 0.5) / 0.5); sx = 1 / Math.sqrt(sy); }
+        ctx.save();
+        if (st === 'reserved') ctx.globalAlpha = pulse + 0.25;
+        if (sy !== 1) { ctx.translate(x + cell / 2, y + cell); ctx.scale(sx, sy); ctx.translate(-(x + cell / 2), -(y + cell)); }
+        ctx.drawImage(Sprites.block(color, spx, sym), x, y, cell, cell);
+        ctx.restore();
+        if (st === 'frontier') { roundRect(ctx, x + 0.75, y + 0.75, cell - 1.5, cell - 1.5, cell * 0.22); ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1.5; ctx.stroke(); }
+        continue;
+      }
+      if (st === 'reserved') {
+        roundRect(ctx, x, y, cell, cell, cell * 0.22); ctx.fillStyle = rgba(hex, pulse); ctx.fill();
+        if (sym) { ctx.fillStyle = rgba(hex, 0.6); ctx.font = `700 ${Math.round(cell * 0.5)}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(SYMBOLS[color], x + cell / 2, y + cell / 2 + cell * 0.05); }
+      } else ctx.drawImage(Sprites.ghost(color, spx, st, sym, cell), x, y, cell, cell);
+    }
+  }
+  ctx.restore();
+}
+function drawFallingBlocks(ctx) {
+  const G = Game, L = G.L, cell = L.cell, spx = Math.max(4, Math.round(cell * view.S));
+  for (const b of G.blocks) {
+    const u = clamp(b.t / b.dur, 0, 1), e = b.up ? easeOut(u) : easeIn(u), y = lerp(b.y0, b.y1, e);
+    const stretch = 1 + 0.12 * Math.sin(u * Math.PI);
+    ctx.save(); ctx.translate(b.x + cell / 2, y + cell / 2); ctx.scale(1 / Math.sqrt(stretch), stretch);
+    if (b.up) ctx.globalAlpha = 1 - Math.max(0, u - 0.8) / 0.2;
+    ctx.drawImage(Sprites.block(b.color, spx, settings.symbols), -cell / 2, -cell / 2, cell, cell);
+    ctx.restore();
+  }
+}
+function drawSweepsAndWave(ctx) {
+  const G = Game, L = G.L;
+  if (!G.sweeps.length && G.wave < 0) return;
+  ctx.save(); roundRect(ctx, L.wellX, L.wellY, L.wellW, L.wellH, 8); ctx.clip();
+  for (const s of G.sweeps) {
+    const u = s.t / 0.3, x = L.bx - 40 + (L.boardW + 80) * u, y = L.cellY(s.row);
+    const g = ctx.createLinearGradient(x - 30, 0, x + 30, 0); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.5, 'rgba(255,255,255,0.55)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g; ctx.fillRect(x - 30, y - 2, 60, L.cell + 4);
+  }
+  if (G.wave >= 0 && G.wave < 1.0) {
+    const u = G.wave / 1.0, d = (L.wellW + L.wellH) * u - L.wellH;
+    ctx.translate(L.wellX, L.wellY); ctx.rotate(Math.PI / 4); ctx.translate(-L.wellX, -L.wellY);
+    const g = ctx.createLinearGradient(L.wellX + d - 40, 0, L.wellX + d + 40, 0); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.5, 'rgba(255,255,255,0.6)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g; ctx.fillRect(L.wellX + d - 60, L.wellY - 600, 120, 1400);
+  }
+  ctx.restore();
+}
+function drawActorFull(ctx, a) {
+  const G = Game;
+  const rm = reducedMotion();
+  const shakeX = a.shake > 0 && !rm ? Math.sin(a.shake * Math.PI * 4) * 4 : 0, wigX = a.wiggle > 0 && !rm ? Math.sin(a.wiggle * Math.PI * 6) * 3 : 0;
+  const rmSquash = rm && (a.shake > 0 || a.wiggle > 0) ? 1 - 0.08 * Math.max(a.shake, a.wiggle) : 1;   // one soft dip instead of a shake
+  const bob = a.state === 'path' && a.seg === 'walk' && a.moving ? 3 * Math.abs(Math.sin(Math.PI * 6 * a.walkT)) : 0;
+  const flop = a.flop ? Math.PI / 2 * clamp(G.stateT / 0.4, 0, 1) : 0;
+  drawCat(ctx, { x: a.x + shakeX + wigX, y: a.y, s: a.s, color: a.color, dir: a.dir, bob: bob + a.bounce, legPhase: a.legPhase, tailPhase: a.tailPhase,
+    squashX: a.squashX * rmSquash, squashY: a.squashY * rmSquash, look: a.look, blink: a.blink, badge: a.badge, badgePop: a.badgePop, swipe: a.swipe, earTwitch: a.earTwitch,
+    happy: a.happy > 0 || a.cheer > 0, alpha: a.alpha, tilt: a.tilt + flop, dim: a.dim, symbol: settings.symbols });
+}
+function drawGraceRing(ctx, a) {
+  const u = clamp(1 - a.grace / CONFIG.graceSeconds, 0, 1), r = 30 * a.s + 8;
+  ctx.save(); ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.arc(a.x, a.y - 6, r, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 5; ctx.stroke();
+  ctx.beginPath(); ctx.arc(a.x, a.y - 6, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * u); ctx.strokeStyle = T.danger; ctx.lineWidth = 4; ctx.stroke();
+  ctx.restore();
+}
+function drawTray(ctx) {
+  const G = Game, sim = G.sim, L = G.L, tr = L.tray(sim.boxes.length), used = sim.boxesUsed(), cap = sim.boxes.length;
+  const nearly = used === cap - 1 && G.state !== 'won', full = used >= cap;
+  const rm = reducedMotion();
+  if ((nearly || full) && G.state !== 'won' && G.state !== 'winning') {
+    const gl = ctx.createRadialGradient(DW / 2, tr.y + tr.h, 10, DW / 2, tr.y + tr.h, 220);
+    gl.addColorStop(0, rgba(T.danger, full ? 0.28 : 0.16)); gl.addColorStop(1, rgba(T.danger, 0));
+    ctx.fillStyle = gl; ctx.fillRect(0, tr.y - 30, DW, tr.h + 70);
+  }
+  const failing = G.state === 'failing' || G.state === 'failed';
+  for (let i = 0; i < cap; i++) {
+    const cat = sim.boxes[i], a = cat ? actorOf(cat.id) : null, fx = G.boxFx[i];
+    const wobble = nearly && !cat && !rm ? Math.sin(G.time * 9) : 0;
+    const shiver = full && !rm && G.shiverT < 0.35 ? Math.sin(G.time * 70) * 0.03 : 0;
+    const bulge = fx ? Math.sin(clamp(fx.t / 0.35, 0, 1) * Math.PI) * (fx.bulge ? 1 : -0.4) : 0;
+    const droop = failing ? clamp(G.stateT / 0.5, 0, 1) * (i % 2 ? 1 : -1) : 0;
+    const glow = a && a.glow ? 0.6 + 0.4 * Math.sin(G.time * 18) : (nearly && !cat ? 0.5 : 0);
+    drawBox(ctx, { x: tr.x(i), y: tr.y, w: tr.w, h: tr.h, wobble, shiver, bulge, droop, glow, glowColor: a && a.glow ? PALETTE.G.hex : T.danger }, () => {
+      // inside drawBox the origin is the box's top-left corner
+      if (a && a.state === 'box') drawBoxedCatHead(ctx, { x: tr.w / 2, y: tr.h * 0.40, s: Math.min(1, tr.w / 58), color: a.color, look: a.look, blink: a.blink, earTwitch: a.earTwitch, bounce: a.bounce });
+    });
+    if (a && a.state === 'box') {
+      drawBoxedCatPaws(ctx, { x: a.x, y: a.y, s: Math.min(1, tr.w / 58), color: a.color, bounce: a.bounce });
+      // badge above the box
+      const pop = a.badgePop ? 1 + 0.3 * Math.sin(a.badgePop * Math.PI) : 1; const txt = a.badge, w = 12 + 7.5 * txt.length;
+      ctx.save(); ctx.translate(a.x, tr.y - 8 - a.bounce); ctx.scale(pop, pop);
+      roundRect(ctx, -w / 2, -8, w, 16, 8); ctx.fillStyle = '#FFFFFF'; ctx.fill(); ctx.strokeStyle = rgba(T.ink, 0.15); ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = T.ink; ctx.font = `700 12px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(settings.symbols ? `${SYMBOLS[a.color]}${txt}` : txt, 0, 0.5);
+      ctx.restore();
+    }
+  }
+}
+function drawLanes(ctx) {
+  const G = Game, sim = G.sim, L = G.L;
+  // back rows first so the front cat overlaps
+  const laneActors = G.actors.filter(a => a.state === 'lane').sort((p, q) => q.laneIndex - p.laneIndex);
+  for (const a of laneActors) if (a.laneIndex < 3 || a.alpha > 0.02) drawActorFull(ctx, a);
+  for (let i = 0; i < L.laneN; i++) {
+    const extra = sim.lanes[i].length - 3;
+    if (extra > 0) {
+      const x = L.laneX(i), y = L.chipY; roundRect(ctx, x - 20, y - 9, 40, 18, 9); ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fill();
+      ctx.fillStyle = T.ink; ctx.font = `600 12px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(`+${extra}`, x, y + 0.5);
+    }
+  }
+}
+function drawParticles(ctx) {
+  const G = Game;
+  for (const p of G.particles) {
+    if (p.dead) continue; const u = p.t / p.ttl;
+    ctx.save(); ctx.globalAlpha = p.kind === 'confetti' ? 1 - Math.max(0, u - 0.7) / 0.3 : 1 - u;
+    if (p.kind === 'heart') {
+      ctx.translate(p.x, p.y); ctx.scale(p.size / 10, p.size / 10); ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.moveTo(0, 4); ctx.bezierCurveTo(-8, -3, -4, -9, 0, -5); ctx.bezierCurveTo(4, -9, 8, -3, 0, 4); ctx.fill();
+    } else if (p.kind === 'confetti') {
+      ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillStyle = p.color; ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
+    } else { ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (1 - u * 0.5), 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+  }
+  for (const t of G.texts) {
+    const u = t.t / t.ttl; ctx.save(); ctx.globalAlpha = 1 - Math.max(0, u - 0.6) / 0.4;
+    ctx.font = `700 ${t.size}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.strokeText(t.text, t.x, t.y); ctx.fillStyle = t.color; ctx.fillText(t.text, t.x, t.y);
+    ctx.restore();
+  }
+}
+function render() {
+  const G = Game, ctx = view.ctx;
+  drawWall(ctx, view);
+  ctx.setTransform(view.S, 0, 0, view.S, view.ox, view.oy);
+  if (!G.sim) return;
+  const L = G.L, sim = G.sim;
+  const failing = G.state === 'failing' || G.state === 'failed';
+  const breathe = G.state === 'winning' ? 1 + 0.04 * Math.sin(clamp(G.stateT / 0.8, 0, 1) * Math.PI) : 1;
+  const drawStatic = (g) => { drawLaneRugs(g, L); drawFlap(g, L); drawTree(g, L); drawFrame(g, L, 1); drawShelf(g, L, 0); drawSlide(g, L); };
+  if (breathe === 1) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(Layers.ensureScene(view, L, drawStatic), 0, 0);
+    ctx.setTransform(view.S, 0, 0, view.S, view.ox, view.oy);
+    const settling = G.settle.length > 0 || G.colNudge.some(n => n > 0);
+    if (settling) drawBoard(ctx, 'all');
+    else {
+      // the static cells are a function of the logical state only: re-rasterised on dispatch / landing / settings changes
+      let present = 0; for (const col of G.present) for (const v of col) if (v) present++;
+      const key = `${sim.ptr.join(',')}|${present}|${settings.symbols ? 1 : 0}|${G.mode}|${L.cell}|${view.S}`;
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(Layers.ensureBoard(view, key, (g) => drawBoard(g, 'static')), 0, 0);
+      ctx.setTransform(view.S, 0, 0, view.S, view.ox, view.oy);
+      drawBoard(ctx, 'live');
+    }
+    if (G.shelfFlash > 0) drawShelf(ctx, L, G.shelfFlash, false);
+  } else {
+    drawLaneRugs(ctx, L); drawFlap(ctx, L); drawTree(ctx, L);
+    drawFrame(ctx, L, breathe);
+    ctx.save(); ctx.translate(DW / 2, L.wellY + L.wellH / 2); ctx.scale(breathe, breathe); ctx.translate(-DW / 2, -(L.wellY + L.wellH / 2));
+    drawBoard(ctx); ctx.restore();
+    drawShelf(ctx, L, G.shelfFlash);
+    drawSlide(ctx, L);
+  }
+  drawFallingBlocks(ctx);
+  drawSweepsAndWave(ctx);
+  drawLanes(ctx);
+  ctx.save(); if (failing) ctx.globalAlpha = 0.85;
+  drawTray(ctx); ctx.restore();
+  // cats on the loop (draw exiting and hopping last so they overlap)
+  for (const a of G.flight) if (a.state === 'path' || a.state === 'wait') drawActorFull(ctx, a);
+  for (const a of G.flight) if (a.state === 'wait' && a === G.graceHead && G.state === 'playing') drawGraceRing(ctx, a);
+  for (const a of G.actors) if (a.state === 'boxhop' || a.state === 'exit') drawActorFull(ctx, a);
+  for (const a of G.flight) if (a.state === 'hop') drawActorFull(ctx, a);
+  drawParticles(ctx);
+  // vignette when the tray is full
+  const used = sim.boxesUsed(), cap = sim.boxes.length;
+  if (used >= cap && (G.state === 'playing') && !reducedMotion()) {
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(Layers.ensureVignette(view), 0, 0); ctx.restore();
+  }
+  if (failing) { ctx.fillStyle = `rgba(120,110,130,${0.3 * clamp(G.stateT / 0.5, 0, 1)})`; ctx.fillRect(0, 0, DW, DH); }
+}
+
+// ------------------------------ INPUT ------------------------------
+function hitTest(x, y) {
+  const G = Game, sim = G.sim, L = G.L; if (!sim) return null;
+  const tr = L.tray(sim.boxes.length);
+  for (let i = 0; i < sim.boxes.length; i++) if (x >= tr.x(i) - 4 && x <= tr.x(i) + tr.w + 4 && y >= tr.y - 34 && y <= tr.y + tr.h + 8) return { kind: 'box', slot: i };
+  for (let i = 0; i < L.laneN; i++) {
+    const lx = L.laneX(i);
+    if (Math.abs(x - lx) <= 50) {
+      if (y >= L.laneRows[0].y - 52 && y <= L.laneRows[0].y + 34) return { kind: 'lane', lane: i };
+      if (y > L.laneRows[0].y + 34 && y <= DH) return { kind: 'lanedeep', lane: i };
+    }
+  }
+  return null;
+}
+function onTapDesign(x, y) {
+  const G = Game; if (!G.sim || UI.modalOpen()) return;
+  const t = hitTest(x, y); if (!t) return;
+  if (G.state !== 'playing') return;
+  if (t.kind === 'lanedeep') { wiggleLaneFront(t.lane); return; }
+  if (t.kind === 'lane' && !(G.sim.lanes[t.lane] && G.sim.lanes[t.lane][0])) return;
+  if (t.kind === 'box' && !G.sim.boxes[t.slot]) return;
+  enqueueTap(t);
+}
+function setupInput() {
+  const c = view.canvas;
+  c.addEventListener('pointerdown', (e) => {
+    Audio.init();
+    const x = (e.clientX * view.dpr - view.ox) / view.S, y = (e.clientY * view.dpr - view.oy) / view.S;
+    onTapDesign(x, y);
+    e.preventDefault();
+  }, { passive: false });
+  c.addEventListener('contextmenu', (e) => e.preventDefault());
+  document.addEventListener('pointerdown', () => Audio.init(), { capture: true });
+  window.addEventListener('keydown', (e) => {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
+    if (e.key === 'd' || e.key === 'D') UI.toggleDebug();
+    else if (e.key === 'r' || e.key === 'R') { if (Game.sim) UI.restart(); }
+    else if (e.key === 'Escape') { if (!Game.sim || Game.state === 'playing') UI.closeModal(); }
+  });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) view.lastFrame = performance.now(); });
+}
+
+// ------------------------------ UI / SCREENS (plan §11) ------------------------------
+const UI = (() => {
+  const hud = $('#hud'), title = $('#hud-title'), tips = $('#tips'), select = $('#select'), tiles = $('#tiles'), modal = $('#modal'), panel = $('#panel'), debug = $('#debug');
+  let debugOpen = false, tipTimers = [];
+
+  function artThumb(art, full, w = 120, h = 110) {
+    const c = document.createElement('canvas'); const dpr = Math.min(2, window.devicePixelRatio || 1);
+    c.width = w * dpr; c.height = h * dpr; c.style.width = w + 'px'; c.style.height = h + 'px';
+    const g = c.getContext('2d'); g.scale(dpr, dpr);
+    g.fillStyle = T.well; g.fillRect(0, 0, w, h);
+    const W = art[0].length, H = art.length, cell = Math.floor(Math.min((w - 12) / W, (h - 12) / H)), ox = (w - cell * W) / 2, oy = (h - cell * H) / 2;
+    for (let r = 0; r < H; r++) for (let cc = 0; cc < W; cc++) {
+      const k = art[r][cc]; if (k === '.') continue;
+      roundRect(g, ox + cc * cell + 0.5, oy + r * cell + 0.5, cell - 1, cell - 1, cell * 0.22);
+      g.fillStyle = full ? PALETTE[k].hex : rgba(PALETTE[k].hex, 0.22); g.fill();
+    }
+    return c;
+  }
+  function difficultyLabel(id) {
+    const b = BACKTEST[id]; if (!b) return '';
+    return `random-win ${Math.round(b.randomWin * 100)}%` + (b.greedyWins ? '' : ' · needs lookahead');
+  }
+  function buildTiles() {
+    tiles.innerHTML = '';
+    LEVELS.forEach((lv, i) => {
+      const done = progress.done[lv.id];
+      const t = el('button', 'tile' + (done ? ' done' : '')); t.type = 'button';
+      t.appendChild(artThumb(lv.art, !!done, 104, 84));
+      t.appendChild(el('div', 'name', `${i + 1}. ${lv.name}`));
+      const colors = Object.keys(colorCounts(columns(lv.art))).length, blocks = lv.art.join('').replace(/\./g, '').length;
+      t.appendChild(el('div', 'meta', `${colors} colours · ${blocks} blocks`)); t.appendChild(el('div', 'meta', difficultyLabel(lv.id) + (done ? ` · best ${fmtTime(done.timeSec)}` : '')));
+      t.addEventListener('click', () => { Audio.init(); play(i); });
+      tiles.appendChild(t);
+    });
+    const g = el('button', 'tile gen'); g.type = 'button';
+    const dice = el('div', 'dice', '🎲'); g.appendChild(dice);
+    g.appendChild(el('div', 'name', 'Generated'));
+    g.appendChild(el('div', 'meta', 'any art · any preset · seeded'));
+    g.addEventListener('click', () => { Audio.init(); showGen(); });
+    tiles.appendChild(g);
+  }
+  function showSelect() {
+    Game.sim = null; Game.state = 'idle';
+    closeModal(); clearTips(); buildTiles();
+    select.classList.remove('hidden'); hud.classList.add('hidden');
+  }
+  function play(index) { Game.levelIndex = index; startLevel(LEVELS[index]); }
+  function playGenerated(level, mode) { Game.levelIndex = -1; Game.genSpec = { art: level.art, preset: level.preset, seed: level.seed, artId: level.artId }; startLevel(level, { mode }); }
+  function restart() {
+    if (!Game.def) return;
+    if (Game.def.id.startsWith('gen-')) startLevel(Game.def, { mode: Game.mode }); else startLevel(Game.def);
+  }
+  function onLevelStart() {
+    const G = Game; select.classList.add('hidden'); closeModal(); clearTips(); hud.classList.remove('hidden');
+    const idx = G.levelIndex;
+    title.textContent = idx >= 0 ? `Level ${idx + 1} · ${G.def.name}` : G.def.preset ? `${G.def.preset} · ${G.mode} · seed ${G.def.seed}` : `${G.def.name}${G.mode === 'yoink' ? ' · yoink' : ''}`;
+    // tutorial (plan §11.2)
+    if (idx === 0) { tutorialStep(1); }
+    else if (idx === 1 && !settings.seenTips.frontOnly) { settings.seenTips.frontOnly = true; saveSettings(); showTip('Only the front cat in each line can go.', DW / 2, 640, 5); }
+    updateDebug(true);
+  }
+  // ---- tutorial tips ----
+  function clearTips() { tips.innerHTML = ''; for (const t of tipTimers) clearTimeout(t); tipTimers = []; }
+  function showTip(text, x, y, secs, cls) {
+    const d = el('div', 'tip' + (cls ? ' ' + cls : ''), text); tips.appendChild(d);
+    d.style.left = '0px'; d.style.top = '0px';
+    requestAnimationFrame(() => { const r = d.getBoundingClientRect(); const w = r.width / view.scale, h = r.height / view.scale; d.style.left = clamp(x - w / 2, 8, DW - w - 8) + 'px'; d.style.top = (y - h / 2) + 'px'; });
+    if (secs) tipTimers.push(setTimeout(() => { if (d.parentNode) d.remove(); }, secs * 1000));
+    return d;
+  }
+  let tutState = 0;
+  function showFrontierTip() { Game.tut.tip3 = true; Game.tut.frontierPending = false; clearTips(); showTip('Glowing squares show what each column needs next.', DW / 2, 130, 5); }
+  function tutorialStep(n) {
+    const G = Game, L = G.L; tutState = n; clearTips();
+    if (n === 1) {
+      const lx = L.laneX(0);
+      showTip('👆', lx + 30, L.laneRows[0].y - 46, 0, 'hand');
+      showTip('Tap a cat.', lx + 10, L.laneRows[0].y - 92, 0);
+    }
+  }
+  function tutorialEvent(kind) {
+    const G = Game; if (G.levelIndex !== 0) return;
+    if (kind === 'dispatch' && tutState === 1) { clearTips(); tutState = 1.5; }
+    else if (kind === 'boxed' && !G.tut.tip2) {
+      G.tut.tip2 = true; clearTips(); showTip('Cats with blocks left nap in a box. Run out of boxes and it’s over.', DW / 2, 122, 5);
+      if (G.tut.frontierPending) { const def = G.def; tipTimers.push(setTimeout(() => { if (Game.def === def && !Game.tut.tip3) showFrontierTip(); }, 5300)); }
+    }
+    else if (kind === 'frontier' && !G.tut.tip3) { if (G.tut.tip2) showFrontierTip(); else G.tut.frontierPending = true; }
+  }
+  // ---- modal ----
+  function openModal(node) { panel.innerHTML = ''; panel.appendChild(node); modal.classList.remove('hidden'); }
+  const levelOver = () => !!Game.sim && (Game.state === 'won' || Game.state === 'failed');
+  /** Hides the dialog, except that a win/fail card comes back: the result card is the only way onward. */
+  let genSeq = 0;                                   // bumped whenever the generated chooser is (re)opened or closed, so stale timers no-op
+  function closeModal() {
+    genSeq++;
+    if (levelOver() && Game.lastCard) { const c = Game.lastCard; showCard(c.result, c.reason, c.rec); return; }
+    modal.classList.add('hidden');
+  }
+  function modalOpen() { return !modal.classList.contains('hidden'); }
+  function button(label, cls, fn) { const b = el('button', 'btn' + (cls ? ' ' + cls : ''), label); b.type = 'button'; b.addEventListener('click', fn); return b; }
+  function showCard(result, reason, rec) {
+    const G = Game, box = el('div'); G.lastCard = { result, reason, rec };
+    if (result === 'won') {
+      box.appendChild(el('h2', null, `${G.def.name} done!`));
+      const th = artThumb(G.def.art, true, 160, 150); th.className = 'card-pic'; box.appendChild(th);
+      box.appendChild(el('p', null, `Time ${fmtTime(rec.timeSec)} · ${rec.dispatches} dispatches · ${rec.maxBoxesUsed} boxes at most`));
+      if (rec.graceSaves) box.appendChild(el('p', 'small', `${rec.graceSaves} last-second save${rec.graceSaves > 1 ? 's' : ''}!`));
+      const row = el('div', 'row');
+      const hasNext = G.levelIndex >= 0 && G.levelIndex + 1 < LEVELS.length;
+      row.appendChild(button(hasNext ? 'Next' : 'Levels', 'good', () => (hasNext ? play(G.levelIndex + 1) : showSelect())));
+      row.appendChild(button('Replay', 'secondary', restart));
+      if (hasNext) row.appendChild(button('Levels', 'secondary', showSelect));
+      box.appendChild(row);
+    } else {
+      box.appendChild(el('h2', null, 'Out of room'));
+      const waiter = G.actors.find(a => a.state === 'wait');
+      const msg = reason === 'no_box'
+        ? `No box was free for the ${waiter ? PALETTE[waiter.color].name : ''} cat, and nobody made room in time.`
+        : 'The tray is full and no cat you can tap has a block to place.';
+      box.appendChild(el('p', null, msg));
+      box.appendChild(el('p', 'small', `${rec.dispatches} dispatches · ${Math.round((G.sim.placedCount() / G.sim.totalCells()) * 100)}% of the picture`));
+      const row = el('div', 'row');
+      if (!G.continueUsed) row.appendChild(button('+1 box and continue', 'good', () => { useContinue(); closeModal(); }));
+      row.appendChild(button('Try again', G.continueUsed ? 'good' : 'secondary', restart));
+      row.appendChild(button('Levels', 'secondary', showSelect));
+      box.appendChild(row);
+    }
+    openModal(box);
+  }
+  function toggleRow(label, control) { const r = el('div', 'toggle'); r.appendChild(el('span', null, label)); r.appendChild(control); return r; }
+  function checkbox(val, fn) { const c = document.createElement('input'); c.type = 'checkbox'; c.checked = !!val; c.addEventListener('change', () => fn(c.checked)); return c; }
+  function showSettings() {
+    const box = el('div'); box.appendChild(el('h2', null, 'Settings'));
+    box.appendChild(toggleRow('Sound', checkbox(settings.sound, v => { settings.sound = v; saveSettings(); if (v) Audio.init(); })));
+    box.appendChild(toggleRow('Symbols (colour-blind)', checkbox(settings.symbols, v => { settings.symbols = v; saveSettings(); })));
+    box.appendChild(toggleRow('Assist (ready cats bounce)', checkbox(settings.assist, v => { settings.assist = v; saveSettings(); })));
+    const sel = document.createElement('select');
+    for (const [v, n] of [['auto', 'System'], ['on', 'Reduced'], ['off', 'Full']]) { const o = document.createElement('option'); o.value = v; o.textContent = n; if (settings.motion === v) o.selected = true; sel.appendChild(o); }
+    sel.addEventListener('change', () => { settings.motion = sel.value; saveSettings(); });
+    box.appendChild(toggleRow('Motion', sel));
+    const row = el('div', 'row');
+    row.appendChild(button('🐞 Debug', 'secondary', () => { closeModal(); toggleDebug(true); }));
+    row.appendChild(button('Reset progress', 'secondary', () => { progress.done = {}; settings.seenTips = {}; Store.clear(); saveSettings(); saveProgress(); Game.telemetry = []; closeModal(); if (!Game.sim) buildTiles(); }));
+    row.appendChild(button('Done', null, closeModal));
+    box.appendChild(row);
+    if (!Store.available) box.appendChild(el('p', 'small', 'Storage is blocked here: settings and progress last for this visit only.'));
+    openModal(box);
+  }
+  function showGen(spec) {
+    spec = spec || Game.genSpec || { artId: 'chick', preset: 'easy', seed: (Math.random() * 1e9) >>> 0 };
+    genSeq++;
+    const box = el('div'); box.appendChild(el('h2', null, '🎲 Generated level'));
+    const artSel = document.createElement('select');
+    for (const lv of LEVELS) { const o = document.createElement('option'); o.value = lv.id; o.textContent = `${lv.name} (${Object.keys(colorCounts(columns(lv.art))).length} colours)`; if (lv.id === spec.artId) o.selected = true; artSel.appendChild(o); }
+    const preSel = document.createElement('select');
+    for (const p of Object.keys(GEN.PRESETS)) { const o = document.createElement('option'); o.value = p; o.textContent = p; if (p === spec.preset) o.selected = true; preSel.appendChild(o); }
+    const seedIn = document.createElement('input'); seedIn.type = 'number'; seedIn.value = String(spec.seed); seedIn.style.width = '110px';
+    const modeSel = document.createElement('select');
+    for (const m of ['build', 'yoink']) { const o = document.createElement('option'); o.value = m; o.textContent = m; if ((spec.mode || CONFIG.mode) === m) o.selected = true; modeSel.appendChild(o); }
+    box.appendChild(toggleRow('Art', artSel)); box.appendChild(toggleRow('Preset', preSel)); box.appendChild(toggleRow('Seed', seedIn)); box.appendChild(toggleRow('Mode', modeSel));
+    const info = el('p', 'small', 'Generates 80 candidates, rates each with 100 random playouts, keeps the one closest to the preset target.'); box.appendChild(info);
+    const row = el('div', 'row');
+    row.appendChild(button('Random seed', 'secondary', () => { seedIn.value = String((Math.random() * 1e9) >>> 0); }));
+    row.appendChild(button('Generate & play', 'good', () => {
+      info.textContent = 'Generating…';
+      const mySeq = ++genSeq;                         // a newer click or a close invalidates this request
+      setTimeout(() => {
+        if (mySeq !== genSeq) return;                 // the chooser was closed or Generate was clicked again meanwhile
+        const parsedSeed = parseInt(seedIn.value, 10);
+        const art = LEVELS.find(l => l.id === artSel.value).art, seed = (Number.isNaN(parsedSeed) ? 1 : parsedSeed) >>> 0, mode = modeSel.value, preset = preSel.value;   // 0 is a valid seed
+        const t0 = performance.now();
+        let level;
+        try { level = GEN.generateLevel({ art, artId: artSel.value, preset, seed, reverse: mode === 'yoink', trayCap: CONFIG.trayCapacity }); } catch (e) { info.textContent = 'Generation failed: ' + e.message; return; }
+        level.name = `${LEVELS.find(l => l.id === artSel.value).name} · ${preset}`;
+        level.genMs = Math.round(performance.now() - t0);
+        CONFIG.mode = mode;
+        const hardNote = level.hardCompliant === false ? ` · no lookahead-forcing level found in ${level.candidatesTried} candidates, closest shown` : level.hardCompliant ? ' · needs lookahead ✓' : '';
+        info.textContent = `Achieved random-win ${Math.round(level.achieved * 100)}% (target ${preset === 'hard' ? '≤ 5%' : Math.round(GEN.PRESETS[preset].target * 100) + '%'}) · greedy ${level.greedyWins ? 'wins' : 'loses'}${hardNote} · ${level.genMs} ms`;
+        setTimeout(() => { if (mySeq === genSeq) playGenerated(level, mode); }, 700);
+      }, 30);
+    }));
+    row.appendChild(button('Back', 'secondary', () => { closeModal(); }));
+    box.appendChild(row);
+    openModal(box);
+  }
+  // ---- debug overlay + telemetry (plan §11.4) ----
+  let dbgLive = null, dbgTele = null, dbgArea = null, dbgMode = null;
+  function slider(label, key, min, max, step, onChange) {
+    const wrap = el('label'); const val = el('span', null, String(CONFIG[key]));
+    wrap.appendChild(document.createTextNode(label + ' ')); wrap.appendChild(val);
+    const r = document.createElement('input'); r.type = 'range'; r.min = min; r.max = max; r.step = step; r.value = CONFIG[key];
+    r.addEventListener('input', () => { CONFIG[key] = parseFloat(r.value); val.textContent = r.value; if (onChange) onChange(CONFIG[key]); });
+    wrap.appendChild(r); return wrap;
+  }
+  function buildDebug() {
+    debug.innerHTML = '';
+    dbgLive = el('div', 'live'); debug.appendChild(dbgLive);
+    debug.appendChild(slider('walkSpeed', 'walkSpeed', 3, 7, 0.1));
+    debug.appendChild(slider('minDispatchGap', 'minDispatchGap', 0.1, 0.6, 0.02));
+    debug.appendChild(slider('graceSeconds', 'graceSeconds', 1, 5, 0.1));
+    debug.appendChild(slider('shelfCapacity', 'shelfCapacity', 1, 8, 1, v => { if (Game.sim) Game.sim.shelfCapacity = v; }));
+    debug.appendChild(slider('trayCapacity (on restart)', 'trayCapacity', 3, 8, 1));
+    const modeRow = el('div'); modeRow.appendChild(document.createTextNode('mode '));
+    dbgMode = document.createElement('select');
+    for (const m of ['build', 'yoink']) { const o = document.createElement('option'); o.value = m; o.textContent = m; dbgMode.appendChild(o); }
+    dbgMode.addEventListener('change', () => {
+      const G = Game; CONFIG.mode = dbgMode.value;
+      if (G.def && G.def.id.startsWith('gen-')) {
+        try {
+          const lv = GEN.generateLevel({ art: G.def.art, artId: G.def.artId, preset: G.def.preset, seed: G.def.seed, reverse: dbgMode.value === 'yoink', trayCap: CONFIG.trayCapacity });
+          lv.name = G.def.name; playGenerated(lv, dbgMode.value);
+        } catch (e) { if (dbgTele) dbgTele.textContent = 'regenerate failed: ' + e.message; }
+      }
+    });
+    modeRow.appendChild(dbgMode); modeRow.appendChild(el('span', 'small', ' (generated levels only)')); debug.appendChild(modeRow);
+    const row = el('div');
+    row.appendChild(button('Restart', 'secondary', restart));
+    row.appendChild(button('Regenerate', 'secondary', () => showGen(Game.genSpec)));
+    row.appendChild(button('Self-test', 'secondary', () => { const r = window.__selftest(); dbgArea.classList.remove('hidden'); dbgArea.value = r; }));
+    debug.appendChild(row);
+    dbgTele = el('div', 'tele'); debug.appendChild(dbgTele);
+    const row2 = el('div');
+    row2.appendChild(button('Copy stats', 'secondary', () => {
+      const json = JSON.stringify(Game.telemetry, null, 2);
+      const fallback = () => { dbgArea.classList.remove('hidden'); dbgArea.value = json; dbgArea.focus(); dbgArea.select(); };
+      try { navigator.clipboard.writeText(json).then(() => { dbgTele.textContent = `copied ${Game.telemetry.length} record(s)`; }, fallback); } catch (e) { fallback(); }
+    }));
+    row2.appendChild(button('Close', 'secondary', () => toggleDebug(false)));
+    debug.appendChild(row2);
+    dbgArea = document.createElement('textarea'); dbgArea.className = 'hidden'; dbgArea.readOnly = true; debug.appendChild(dbgArea);
+  }
+  function toggleDebug(force) {
+    debugOpen = force == null ? !debugOpen : !!force;
+    if (debugOpen && !dbgLive) buildDebug();
+    debug.classList.toggle('hidden', !debugOpen);
+    updateDebug(true);
+  }
+  let dbgAcc = 0;
+  function updateDebug(force) {
+    if (!debugOpen || !dbgLive) return;
+    dbgAcc += 1; if (!force && dbgAcc % 6) return;
+    const G = Game, sim = G.sim;
+    if (sim) {
+      let landed = 0; for (const col of G.present) for (const v of col) if (v) landed++;
+      if (G.mode === 'yoink') landed = sim.totalCells() - landed;
+      dbgLive.textContent = `fps ${G.fps.toFixed(0)} · flight ${sim.inFlight.length}/${sim.shelfCapacity} · boxes ${sim.boxesUsed()}/${sim.boxes.length} · logical ${sim.placedCount()} / landed ${landed} of ${sim.totalCells()} · seed ${G.def.seed ?? '-'} · ${G.mode} · ${G.state}`;
+    } else dbgLive.textContent = `fps ${G.fps.toFixed(0)} · no level`;
+    if (dbgMode) { dbgMode.value = CONFIG.mode; dbgMode.disabled = !(G.def && G.def.id.startsWith('gen-')); }
+    if (dbgTele) dbgTele.textContent = `telemetry: ${G.telemetry.length} record(s)` + (G.telemetry.length ? ` · last: ${G.telemetry[G.telemetry.length - 1].result} ${G.telemetry[G.telemetry.length - 1].timeSec}s` : '');
+  }
+  $('#btn-restart').addEventListener('click', () => { Audio.init(); restart(); });
+  $('#btn-settings').addEventListener('click', () => { Audio.init(); if (modalOpen() && !levelOver()) closeModal(); else showSettings(); });
+  $('#btn-settings2').addEventListener('click', () => { Audio.init(); showSettings(); });
+  modal.addEventListener('pointerdown', (e) => { if (e.target === modal && Game.sim && Game.state === 'playing') closeModal(); });
+  return { showSelect, play, playGenerated, restart, onLevelStart, showCard, showSettings, showGen, tutorialEvent, toggleDebug, updateDebug, closeModal, modalOpen, artThumb };
+})();
+
+// ------------------------------ BOOT ------------------------------
+function resize() {
+  const dpr = Math.min(CONFIG.dprCap, window.devicePixelRatio || 1);
+  const w = window.innerWidth, h = window.innerHeight;
+  const scale = Math.min(w / DW, h / DH);
+  view.dpr = dpr; view.scale = scale; view.S = scale * dpr;
+  view.cw = Math.round(w * dpr); view.ch = Math.round(h * dpr);
+  view.canvas.width = view.cw; view.canvas.height = view.ch;
+  view.canvas.style.width = w + 'px'; view.canvas.style.height = h + 'px';
+  const sx = (w - DW * scale) / 2, sy = (h - DH * scale) / 2;
+  view.ox = Math.round(sx * dpr); view.oy = Math.round(sy * dpr);
+  const stage = $('#stage'); stage.style.transform = `translate(${sx}px, ${sy}px) scale(${scale})`;
+  Sprites.clear(); Layers.clear();
+}
+function loop(now) {
+  const G = Game;
+  const dt = clamp((now - view.lastFrame) / 1000, 0, 0.1);   // clamp: no teleporting after a background tab
+  view.lastFrame = now;
+  // a dialog that blocks taps (settings) pauses play, otherwise the grace countdown could expire with no way to react
+  const paused = !!G.sim && G.state === 'playing' && UI.modalOpen();
+  view.acc = paused ? 0 : (view.acc || 0) + dt;
+  let steps = 0;
+  while (view.acc >= CONFIG.fixedStep && steps < 16) { update(CONFIG.fixedStep); view.acc -= CONFIG.fixedStep; steps++; }
+  if (steps === 16) view.acc = 0;
+  G.paused = paused;
+  render();
+  G.fps = G.fps * 0.95 + (dt > 0 ? 1 / dt : 60) * 0.05;
+  UI.updateDebug(false);
+  requestAnimationFrame(loop);
+}
+function selftest() {
+  const lines = [];
+  try {
+    validateBakedLevels(); lines.push('loader: ok');
+    for (const lv of LEVELS) {
+      const { cols, lanes, cap } = GEN.lanesOf(lv);
+      const s = GEN.solve(cols, lanes, cap, 2e6);
+      const rate = GEN.randomWinRate(cols, lanes, cap, makeRng(hashSeed('st:' + lv.id)), 300);
+      const greedy = GEN.playout(cols, lanes, cap, makeRng(1), true);
+      lines.push(`${lv.id}: solvable=${s.solvable} random-win=${rate.toFixed(2)} (appendix ${BACKTEST[lv.id].randomWin}) greedy=${greedy}`);
+    }
+    const run = () => { const sim = createSim(LEVELS[1]); const out = []; for (let i = 0; i < 30 && sim.status === 'playing'; i++) { const c = sim.tappableCats().find(x => sim.canPlaceNow(x) > 0) || sim.tappableCats()[0]; if (!c) break; const r = sim.dispatch(c.id); if (r.ok) { out.push(r.placements.length); sim.arrive(c.id); } const inv = sim.checkInvariant(); if (!inv.ok) out.push('INVARIANT BROKEN'); } return out.join(','); };
+    lines.push(`determinism: ${run() === run() ? 'ok' : 'MISMATCH'}`);
+  } catch (e) { lines.push('ERROR ' + e.message); }
+  return lines.join('\n');
+}
+function boot() {
+  try { validateBakedLevels(); } catch (e) {
+    document.body.innerHTML = `<pre style="padding:20px;color:#33284F;white-space:pre-wrap">Level data failed validation:\n${e.message}</pre>`; throw e;
+  }
+  view.canvas = $('#c'); view.ctx = view.canvas.getContext('2d');
+  resize(); window.addEventListener('resize', resize); window.addEventListener('orientationchange', () => setTimeout(resize, 50));
+  setupInput();
+  UI.showSelect();
+  view.lastFrame = performance.now();
+  requestAnimationFrame(loop);
+  window.__selftest = selftest;
+  window.SC = { Game, CONFIG, LEVELS, GEN, createSim, startLevel, UI, tap: enqueueTap, hitTest, settings, Audio, view, useContinue, telemetry: () => Game.telemetry };
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+})();
+</script>
+</body>
+</html>
