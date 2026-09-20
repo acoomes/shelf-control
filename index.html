@@ -1786,7 +1786,9 @@ const UI = (() => {
   function openModal(node) { panel.innerHTML = ''; panel.appendChild(node); modal.classList.remove('hidden'); }
   const levelOver = () => !!Game.sim && (Game.state === 'won' || Game.state === 'failed');
   /** Hides the dialog, except that a win/fail card comes back: the result card is the only way onward. */
+  let genSeq = 0;                                   // bumped whenever the generated chooser is (re)opened or closed, so stale timers no-op
   function closeModal() {
+    genSeq++;
     if (levelOver() && Game.lastCard) { const c = Game.lastCard; showCard(c.result, c.reason, c.rec); return; }
     modal.classList.add('hidden');
   }
@@ -1842,6 +1844,7 @@ const UI = (() => {
   }
   function showGen(spec) {
     spec = spec || Game.genSpec || { artId: 'chick', preset: 'easy', seed: (Math.random() * 1e9) >>> 0 };
+    const mySeq = ++genSeq;
     const box = el('div'); box.appendChild(el('h2', null, '🎲 Generated level'));
     const artSel = document.createElement('select');
     for (const lv of LEVELS) { const o = document.createElement('option'); o.value = lv.id; o.textContent = `${lv.name} (${Object.keys(colorCounts(columns(lv.art))).length} colours)`; if (lv.id === spec.artId) o.selected = true; artSel.appendChild(o); }
@@ -1857,6 +1860,7 @@ const UI = (() => {
     row.appendChild(button('Generate & play', 'good', () => {
       info.textContent = 'Generating…';
       setTimeout(() => {
+        if (mySeq !== genSeq) return;                 // the chooser was closed meanwhile
         const art = LEVELS.find(l => l.id === artSel.value).art, seed = (parseInt(seedIn.value, 10) || 1) >>> 0, mode = modeSel.value, preset = preSel.value;
         const t0 = performance.now();
         let level;
@@ -1865,7 +1869,7 @@ const UI = (() => {
         level.genMs = Math.round(performance.now() - t0);
         CONFIG.mode = mode;
         info.textContent = `Achieved random-win ${Math.round(level.achieved * 100)}% (target ${preset === 'hard' ? '≤ 5%' : Math.round(GEN.PRESETS[preset].target * 100) + '%'}) · greedy ${level.greedyWins ? 'wins' : 'loses'} · ${level.genMs} ms`;
-        setTimeout(() => playGenerated(level, mode), 700);
+        setTimeout(() => { if (mySeq === genSeq) playGenerated(level, mode); }, 700);
       }, 30);
     }));
     row.appendChild(button('Back', 'secondary', () => { closeModal(); }));

@@ -48,12 +48,18 @@ const idle = await sample('level select (idle)', 2000);
 await page.evaluate(() => { SC.Game.levelIndex = 5; SC.startLevel(SC.LEVELS[5]); });   // rainbow: 12 wide, 4 lanes
 await wait(200);
 const start = await sample('level start (no cats)', 2000);
-// five cats in flight, blocks falling and landing
-await page.evaluate(() => { for (let i = 0; i < 5; i++) SC.tap({ kind: 'lane', lane: i % 4 }); });
-const parade = await sample('5-cat parade', 3500);
-// keep the parade going: tap again as capacity frees
-await page.evaluate(() => { for (let i = 0; i < 5; i++) SC.tap({ kind: 'lane', lane: (i + 1) % 4 }); });
-const parade2 = await sample('second parade', 3000);
+// five cats in flight, blocks falling and landing: taps staggered by more than minDispatchGap so none is buffered or denied
+async function fiveCatParade(offset) {
+  for (let i = 0; i < 5; i++) { await page.evaluate((l) => SC.tap({ kind: 'lane', lane: l }), (i + offset) % 4); await wait(300); }
+  const n = await page.evaluate(() => SC.Game.sim.inFlight.length);
+  if (n < 5) console.log(`  (warning: only ${n} cats in flight)`);
+  return n;
+}
+const n1 = await fiveCatParade(0);
+const parade = await sample(`5-cat parade (${n1} in flight)`, 3000);
+// keep the parade going: the earlier cats are still on the slide/boxes, so the shelf refills
+const n2 = await fiveCatParade(1);
+const parade2 = await sample(`second parade (${n2} in flight)`, 3000);
 // win with confetti on a tiny level
 await page.evaluate(() => { SC.Game.levelIndex = -1; SC.startLevel({ id: 'fx-win', name: 'Win', art: ['RRRRRR', 'BBBBBB'], lanes: ['B6 R6'] }); });
 await wait(100);
@@ -67,8 +73,8 @@ const win = await sample(`win + confetti (${st})`, 1800);
 await page.evaluate(() => { SC.Game.levelIndex = 4; SC.startLevel(SC.LEVELS[4]); });
 await wait(200);
 await cdp.send('Profiler.enable'); await cdp.send('Profiler.setSamplingInterval', { interval: 500 }); await cdp.send('Profiler.start');
-await page.evaluate(() => { for (let i = 0; i < 5; i++) SC.tap({ kind: 'lane', lane: i % 3 }); });
-await wait(3500);
+for (let i = 0; i < 5; i++) { await page.evaluate((l) => SC.tap({ kind: 'lane', lane: l }), i % 3); await wait(300); }
+await wait(2500);
 const { profile } = await cdp.send('Profiler.stop');
 const self = new Map(); const byId = new Map(profile.nodes.map(n => [n.id, n]));
 const dt = profile.timeDeltas; let total = 0;
