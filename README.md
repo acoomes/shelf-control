@@ -15,9 +15,12 @@ Keys on desktop: `D` toggles the debug overlay, `R` restarts, `Esc` closes dialo
 ```
 node tools/headless.mjs          # plan §13.1 + Phase 3 acceptance (≈90 s); --quick for a 5 s smoke run
 node tools/e2e.mjs               # Playwright scenarios in a real Chromium (fake clock); SHOTS=dir saves screenshots
+node tools/perf.mjs              # frame times per phase under 4x CPU throttling, plus a CPU profile of a parade
 ```
 
-`tools/headless.mjs` extracts the pure `<script id="core">` from `index.html` and runs it in a bare VM, so the game logic is tested exactly as shipped. In the browser, `window.__selftest()` (also the *Self-test* button in the debug overlay) runs a shorter version.
+The headless suite needs only Node. The other two need Playwright: `npm install` (it is the only devDependency) or a global `npm install -g playwright`, then `npx playwright install chromium`. `npm test` and `npm run e2e` are shorthands.
+
+`tools/headless.mjs` extracts the pure `<script id="core">` from `index.html` and runs it in a bare VM, so the game logic is tested exactly as shipped. In the browser, `window.__selftest()` (also the *Self-test* button in the debug overlay) runs a shorter version. `tools/e2e.mjs` drives the page through `window.SC` (the game's debug handle) and real pointer clicks; each scenario is a plan §13.2 manual check made repeatable.
 
 ## How the file is laid out
 
@@ -44,4 +47,5 @@ node tools/e2e.mjs               # Playwright scenarios in a real Chromium (fake
 - **Tap buffer.** Two taps can queue behind the 0.28 s dispatch gap. A third early tap is a visible soft deny (head shake, two low notes) rather than a silently eaten tap. A queued tap on a lane resolves to *whoever is at the front of that lane when it fires*; a queued tap on a box resolves to *whoever is in that box when it fires*.
 - **Grace.** Only the cat at the slide's end runs a countdown; cats held behind it have not "arrived" yet, so they keep their full 2.5 s once they get there.
 - **Hard preset.** "Closest to target" for *hard* means inside the [0, 0.05] ceiling, tie-broken by *the greedy player loses*. The rating shown is re-measured with 300 fresh playouts after selection, because the selection score itself is a winner's-curse estimate.
+- **Dialogs pause play.** Opening settings mid-parade freezes the simulation (cats, timers, the grace countdown) until it closes; the plan does not say, and letting a 2.5 s countdown expire behind a panel the player cannot tap through would be a cheap death.
 - **Not built:** the optional audio bed (plan §10 says off by default if it costs time; only the full-tray heartbeat exists) and everything in §14.
