@@ -38,17 +38,23 @@ const FIX = {
 
 async function open(opts = {}) {
   const browser = await chromium.launch();
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, reducedMotion: opts.reducedMotion ? 'reduce' : 'no-preference' });
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: opts.dpr || 2, reducedMotion: opts.reducedMotion ? 'reduce' : 'no-preference' });
   const page = await context.newPage();
   const errors = [];
   page.on('console', m => { if (m.type() === 'error' && !/ERR_CERT|fonts\.g/.test(m.text())) errors.push(m.text()); });
   page.on('pageerror', e => errors.push(e.message));
   await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
   await page.goto(PAGE_URL);
+  await page.clock.pauseAt(new Date('2026-01-01T00:00:01Z'));   // frozen between calls: no real-time drift in the game clock
   await page.clock.runFor(300);
+  // With the clock paused, Playwright's own rAF-polling waits (page.click / textContent on selectors) would hang, so
+  // DOM interaction goes through evaluate(): clickSel finds an element (optionally by text or index) and clicks it.
+  const findIn = (sel, text, index) => { const m = /^(.*):has-text\("(.*)"\)$/.exec(sel); const base = m ? m[1] : sel; const want = m ? m[2] : text; const all = [...document.querySelectorAll(base)].filter(e => want == null || e.textContent.includes(want)); return all[index || 0] || null; };
   const api = {
-    page, browser, errors,
+    page, browser, errors, dpr: opts.dpr || 2,
     async run(ms) { await page.clock.runFor(ms); },
+    async clickSel(sel, index = 0) { const found = await page.evaluate(([sel, index, f]) => { const el = (new Function('return ' + f)())(sel, null, index); if (!el) return false; el.click(); return true; }, [sel, index, findIn.toString()]); if (!found) throw new Error('no element ' + sel); await page.clock.runFor(20); },
+    async text(sel) { return page.evaluate((sel) => { const el = document.querySelector(sel); return el ? el.textContent : ''; }, sel); },
     async shot(name) { if (SHOTS) await page.screenshot({ path: path.join(SHOTS, name + '.png') }); },
     async start(level, o = {}) { await page.evaluate(([lv, o]) => { SC.Game.levelIndex = typeof lv === 'number' ? lv : -1; SC.startLevel(typeof lv === 'number' ? SC.LEVELS[lv] : lv, o); }, [level, o]); await page.clock.runFor(100); },
     async design(x, y) { const v = await page.evaluate(() => ({ s: SC.view.scale, ox: SC.view.ox, oy: SC.view.oy, d: SC.view.dpr })); return { x: v.ox / v.d + x * v.s, y: v.oy / v.d + y * v.s }; },
@@ -94,9 +100,9 @@ const scenarios = {
     ok(s.status === 'won' && s.state === 'won' && s.modal && s.telemetry === 1, `level 1 won by playing the solver line (${n} moves): state=${s.state} landed=${s.landed}/${s.total} telemetry=${s.telemetry}`);
     ok(s.landed === s.total && s.placed === s.total, 'every block landed visually and logically');
     await api.shot('win-card');
-    const card = await api.page.textContent('#panel');
+    const card = await api.text('#panel');
     ok(/done!/.test(card) && /dispatches/.test(card), `win card shows results: ${card.replace(/\s+/g, ' ').slice(0, 90)}`);
-    await api.page.click('#panel .btn.good');   // Next
+    await api.clickSel('#panel .btn.good');   // Next
     await api.run(300);
     const s2 = await api.snap();
     ok(s2.status === 'playing' && !s2.modal, 'Next starts level 2');
@@ -141,9 +147,9 @@ const scenarios = {
     let s = await api.snap();
     ok(s.status === 'failed' && s.reason === 'no_box' && s.modal, `grace expired → failed/no_box, fail card shown (state=${s.state})`);
     await api.shot('fail-card');
-    const txt = await api.page.textContent('#panel');
+    const txt = await api.text('#panel');
     ok(/No box was free/.test(txt) && /\+1 box/.test(txt), `fail card explains the reason and offers +1 box`);
-    await api.page.click('#panel .btn.good');          // +1 box and continue
+    await api.clickSel('#panel .btn.good');          // +1 box and continue
     await api.run(600);
     s = await api.snap();
     ok(s.status === 'playing' && s.boxesN === 6 && s.waiting.length === 0 && s.stats.continuesUsed === 1, `+1 box: sixth box added, waiter seated, play resumes (boxes=${s.boxesN})`);
@@ -163,8 +169,8 @@ const scenarios = {
     ok(s.status === 'playing', 'not yet stuck before the 0.8 s beat');
     await api.run(1600); s = await api.snap();
     ok(s.status === 'failed' && s.reason === 'stuck' && s.modal, `stuck detected after the beat, fail card after the sequence (state=${s.state}, reason=${s.reason})`);
-    const txt = await api.page.textContent('#panel'); ok(/tray is full/.test(txt), 'stuck card explains in plain words');
-    await api.page.click('#panel .btn.good'); await api.run(300);
+    const txt = await api.text('#panel'); ok(/tray is full/.test(txt), 'stuck card explains in plain words');
+    await api.clickSel('#panel .btn.good'); await api.run(300);
     s = await api.snap(); ok(s.status === 'playing' && s.boxesN === 6, '+1 box resolves the stuck state');
     await api.tapLane(0); await api.settle();                                   // sixth R1 digs into the new box
     await api.tapLane(0); await api.settle();                                   // B6 fills the bottom row
@@ -173,9 +179,9 @@ const scenarios = {
     // Escape, the settings button and settings → Done must all leave the result card reachable
     await api.page.keyboard.press('Escape'); await api.run(50); s = await api.snap(); ok(s.modal, 'Escape leaves the win card open');
     await api.page.evaluate(() => document.getElementById('btn-settings').click()); await api.run(50);   // the backdrop covers the HUD, so drive the handler directly
-    let txt2 = await api.page.textContent('#panel'); ok(/Settings/.test(txt2), 'settings opens on top of the win card');
-    await api.page.click('#panel .btn:has-text("Done")'); await api.run(50);
-    txt2 = await api.page.textContent('#panel'); s = await api.snap(); ok(s.modal && /done!/.test(txt2), 'closing settings brings the win card back');
+    let txt2 = await api.text('#panel'); ok(/Settings/.test(txt2), 'settings opens on top of the win card');
+    await api.clickSel('#panel .btn:has-text("Done")'); await api.run(50);
+    txt2 = await api.text('#panel'); s = await api.snap(); ok(s.modal && /done!/.test(txt2), 'closing settings brings the win card back');
   },
   async tripleTap(api) {
     await api.start(1);                                // chick: 3 lanes
@@ -197,10 +203,10 @@ const scenarios = {
     for (let i = 0; i < 5; i++) { await api.tapLane(i % 3); await api.run(320); }
     let s = await api.snap(); ok(s.inFlight.length === 5, 'five cats in flight');
     const d0 = s.stats.deniedTaps;
-    await api.tapLane(0); await api.run(50); s = await api.snap();
+    await api.tapLane(0); s = await api.snap();
     ok(s.stats.deniedTaps === d0 + 1 && s.inFlight.length === 5, 'sixth tap: shelf_full soft deny');
     const flash = await api.page.evaluate(() => SC.Game.shelfFlash > 0);
-    ok(flash, 'shelf edge flashes on the deny');
+    ok(flash, `shelf edge flashes on the deny (flash ${flash})`);
     await api.shot('shelf-full');
     await api.page.evaluate(() => { SC.CONFIG.walkSpeed = 4.5; });
   },
@@ -220,7 +226,7 @@ const scenarios = {
   async restartAndResize(api) {
     await api.start(2);
     await api.tapLane(0); await api.tapLane(1); await api.run(800);
-    await api.page.click('#btn-restart'); await api.run(100);
+    await api.clickSel('#btn-restart'); await api.run(100);
     let s = await api.snap();
     ok(s.status === 'playing' && s.inFlight.length === 0 && s.placed === 0 && s.landed === 0 && s.stats.dispatches === 0, 'restart is instant and clean');
     await api.page.setViewportSize({ width: 800, height: 600 }); await api.run(100);
@@ -242,9 +248,9 @@ const scenarios = {
     ok(tele[tele.length - 1].mode === 'yoink', 'telemetry records mode=yoink');
   },
   async generated(api) {
-    await api.page.click('.tile.gen'); await api.run(200);
+    await api.clickSel('.tile.gen'); await api.run(200);
     const t0 = Date.now();
-    await api.page.click('#panel .btn.good'); await api.run(1200);
+    await api.clickSel('#panel .btn.good'); await api.run(1200);
     const s = await api.snap();
     ok(s.status === 'playing' && !s.modal, `generated level starts (wall ${Date.now() - t0} ms incl. UI)`);
     const def = await api.page.evaluate(() => ({ id: SC.Game.def.id, achieved: SC.Game.def.achieved, ms: SC.Game.def.genMs }));
@@ -266,12 +272,12 @@ const scenarios = {
     for (let i = 0; i < 5; i++) { await api.tapLane(0); await api.settle(); }
     await api.tapLane(0);
     for (let t = 0; t < 60; t++) { await api.run(100); const s = await api.snap(); if (s.waiting.length) break; }
-    await api.page.click('#btn-settings'); await api.run(50);
+    await api.clickSel('#btn-settings'); await api.run(50);
     const before = await api.snap();
     await api.run(4000);                                                  // settings open for 4 s > graceSeconds
     let s = await api.snap();
     ok(before.modal && s.modal && s.status === 'playing' && Math.abs(s.grace - before.grace) < 1e-6, `play is paused while settings is open (grace ${before.grace.toFixed(2)} → ${s.grace.toFixed(2)}, status ${s.status})`);
-    await api.page.click('#panel .btn:has-text("Done")'); await api.run(3400);   // close: the countdown resumes and expires
+    await api.clickSel('#panel .btn:has-text("Done")'); await api.run(3400);   // close: the countdown resumes and expires
     s = await api.snap();
     ok(s.status === 'failed' && s.reason === 'no_box', `after closing settings the grace countdown resumes and expires (status ${s.status}/${s.reason})`);
   },
@@ -291,7 +297,7 @@ const names = wanted.length ? wanted : Object.keys(scenarios);
 for (const name of names) {
   if (!scenarios[name]) { console.log(`unknown scenario ${name}`); failures++; continue; }
   console.log(`\n== ${name} ==`);
-  const api = await open({ reducedMotion: name === 'reduced' });
+  const api = await open({ reducedMotion: name === 'reduced', dpr: name === 'allLevels' ? 1 : 2 });
   try { await scenarios[name](api); } catch (e) { ok(false, `${name} threw: ${e.stack || e}`); }
   const errs = api.errors;
   ok(errs.length === 0, errs.length ? `console errors: ${errs.join(' | ').slice(0, 300)}` : 'no console errors');

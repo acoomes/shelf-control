@@ -429,27 +429,56 @@ const GEN = (() => {
     return true;
   }
 
-  /** greedy=false: uniform random legal moves. greedy=true: one-step lookahead "attentive casual player". */
+  /**
+   * greedy=false: uniform random legal moves. greedy=true: one-step lookahead "attentive casual player".
+   * Same rules, move order and random draws as moves()/apply() above (one draw per move, index = floor(r * count)),
+   * but colours are mapped to small integers once per (cols, lanes) pair and the per-colour frontier count is kept
+   * incrementally, so the hot loop of generate-80-and-select does no scanning and almost no allocation.
+   */
+  const prepCache = new WeakMap();
+  function preparePlayout(cols, L) {
+    let byLanes = prepCache.get(cols); if (!byLanes) { byLanes = new WeakMap(); prepCache.set(cols, byLanes); }
+    let prep = byLanes.get(L); if (prep) return prep;
+    const ids = new Map(); const idOf = (ch) => { let v = ids.get(ch); if (v === undefined) { v = ids.size; ids.set(ch, v); } return v; };
+    const seq = cols.map(s => s.map(idOf)), lens = seq.map(s => s.length);
+    const laneColor = L.map(l => l.map(cat => idOf(cat[0]))), laneCount = L.map(l => l.map(cat => cat[1]));
+    let total = 0; for (const l of lens) total += l;
+    const front0 = new Array(ids.size + 1).fill(0); for (let c = 0; c < seq.length; c++) if (lens[c] > 0) front0[seq[c][0]]++;
+    prep = { seq, lens, laneColor, laneCount, total, front0 };
+    byLanes.set(L, prep); return prep;
+  }
   function playout(cols, L, cap, rng, greedy) {
-    const ptr = new Array(cols.length).fill(0), pos = new Array(L.length).fill(0), tray = [];
-    let guard = 0;
-    while (!allDone(cols, ptr)) {
+    const { seq, lens, laneColor, laneCount, total, front0 } = preparePlayout(cols, L);
+    const W = seq.length, nL = L.length;
+    const front = front0.slice(), ptr = new Array(W).fill(0), pos = new Array(nL).fill(0);
+    const trayC = [], trayN = [], mv = [];
+    let remaining = total, guard = 0;
+    while (remaining > 0) {
       if (++guard > 10000) return false;
-      const mv = moves(cols, ptr, pos, L, tray);
-      if (!mv.length) return false;
+      mv.length = 0;
+      for (let i = 0; i < nL; i++) if (pos[i] < laneColor[i].length) mv.push(i);
+      for (let j = 0; j < trayC.length; j++) if (front[trayC[j]] > 0) mv.push(nL + j);
+      const n = mv.length; if (n === 0) return false;
       let m;
       if (greedy) {
-        let best = null, bestScore = null;
-        for (const cand of mv) {
-          const [x, n] = cand[0] === 'lane' ? L[cand[1]][pos[cand[1]]] : tray[cand[1]];
-          const can = Math.min(n, frontier(cols, ptr, x));
-          const fatal = cand[0] === 'lane' && can < n && tray.length >= cap;
-          const score = [fatal ? 0 : 1, can === n ? 1 : 0, can + (cand[0] === 'tray' ? 0.5 : 0)];
-          if (bestScore === null || cmpTuple(score, bestScore) > 0) { best = cand; bestScore = score; }  // first max wins ties, like Python
+        let best = -1, b0 = -1, b1 = -1, b2 = -1;
+        for (let k = 0; k < n; k++) {
+          const cand = mv[k], isLane = cand < nL;
+          const x = isLane ? laneColor[cand][pos[cand]] : trayC[cand - nL], cnt = isLane ? laneCount[cand][pos[cand]] : trayN[cand - nL];
+          const can = cnt < front[x] ? cnt : front[x];
+          const s0 = isLane && can < cnt && trayC.length >= cap ? 0 : 1, s1 = can === cnt ? 1 : 0, s2 = can + (isLane ? 0 : 0.5);
+          if (best < 0 || s0 > b0 || (s0 === b0 && (s1 > b1 || (s1 === b1 && s2 > b2)))) { best = cand; b0 = s0; b1 = s1; b2 = s2; }  // first max wins ties, like Python
         }
         m = best;
-      } else m = rng.choice(mv);
-      if (!apply(cols, ptr, pos, L, tray, m, cap)) return false;
+      } else m = mv[Math.floor(rng.random() * n)];
+      let x, cnt;
+      if (m < nL) { x = laneColor[m][pos[m]]; cnt = laneCount[m][pos[m]]; pos[m]++; }
+      else { const j = m - nL; x = trayC[j]; cnt = trayN[j]; trayC.splice(j, 1); trayN.splice(j, 1); }
+      for (let c = 0; c < W && cnt > 0; c++) {          // Rule A: one block per column per pass
+        const p = ptr[c];
+        if (p < lens[c] && seq[c][p] === x) { ptr[c] = p + 1; cnt--; remaining--; front[x]--; if (p + 1 < lens[c]) front[seq[c][p + 1]]++; }
+      }
+      if (cnt > 0) { if (trayC.length >= cap) return false; trayC.push(x); trayN.push(cnt); }
     }
     return true;
   }
@@ -496,7 +525,8 @@ const GEN = (() => {
    * generate-80-and-select (plan §12 Phase 3). Same seed → identical result.
    * art: string[] rows. preset: key of PRESETS. Returns a level object usable by createSim, plus ratings.
    */
-  function generateLevel({ art, preset = 'easy', seed = 1, reverse = false, candidates = 80, playouts = 80, finalists = 6, extraPlayouts = 220, trayCap = 5 }) {
+  // 64 candidates rather than the plan's 80: the plan's own rule for staying under 400 ms is to cut candidates before playouts
+  function generateLevel({ art, preset = 'easy', seed = 1, reverse = false, candidates = 64, playouts = 100, finalists = 6, extraPlayouts = 200, trayCap = 5 }) {
     const p = PRESETS[preset]; if (!p) throw new Error(`unknown preset ${preset}`);
     let cols = columns(art);
     if (reverse) cols = cols.map(s => s.slice().reverse());
@@ -956,7 +986,60 @@ const Sprites = (() => {
     g.restore();
     cache.set(key, c); return c;
   }
-  return { block, clear: () => cache.clear() };
+  /** open ghost (20 % fill) or frontier ghost (+1.5 px outline at 70 %), plan §8.4 */
+  function ghost(color, sizePx, kind, symbols, cellPx) {
+    const key = `g:${color}:${sizePx}:${kind}:${symbols ? 1 : 0}`;
+    let c = cache.get(key); if (c) return c;
+    c = document.createElement('canvas'); c.width = c.height = sizePx;
+    const g = c.getContext('2d'); const hex = PALETTE[color].hex, r = sizePx * 0.22, k = sizePx / cellPx;
+    roundRect(g, 0, 0, sizePx, sizePx, r); g.fillStyle = rgba(hex, 0.20); g.fill();
+    if (kind === 'frontier') { const lw = 1.5 * k; roundRect(g, lw / 2, lw / 2, sizePx - lw, sizePx - lw, r); g.strokeStyle = rgba(hex, 0.70); g.lineWidth = lw; g.stroke(); }
+    if (symbols) { g.fillStyle = rgba(hex, 0.4); g.font = `700 ${Math.round(sizePx * 0.5)}px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(SYMBOLS[color], sizePx / 2, sizePx / 2 + sizePx * 0.05); }
+    cache.set(key, c); return c;
+  }
+  /** soft radial glow sprite (replaces shadowBlur, which is very expensive on software rasterisers) */
+  function glow(hex, sizePx) {
+    const key = `glow:${hex}:${sizePx}`;
+    let c = cache.get(key); if (c) return c;
+    c = document.createElement('canvas'); c.width = c.height = sizePx;
+    const g = c.getContext('2d'); const rg = g.createRadialGradient(sizePx / 2, sizePx / 2, sizePx * 0.15, sizePx / 2, sizePx / 2, sizePx / 2);
+    rg.addColorStop(0, rgba(hex, 0.7)); rg.addColorStop(1, rgba(hex, 0)); g.fillStyle = rg; g.fillRect(0, 0, sizePx, sizePx);
+    cache.set(key, c); return c;
+  }
+  return { block, ghost, glow, clear: () => cache.clear() };
+})();
+
+// ------------------------------ RENDER: cached layers ------------------------------
+// The wall and the static furniture (rugs, flap, tree, frame, shelf, slide) do not change between frames, so they are
+// rasterised once per view size / layout into offscreen canvases and blitted. Everything that moves is drawn on top.
+const Layers = (() => {
+  let wall = null, wallKey = '', scene = null, sceneKey = '', vignette = null, vignetteKey = '';
+  function ensureWall(view) {
+    const key = `${view.cw}x${view.ch}`; if (wall && wallKey === key) return wall;
+    wall = document.createElement('canvas'); wall.width = view.cw; wall.height = view.ch; wallKey = key;
+    drawWall(wall.getContext('2d'), view, true); return wall;
+  }
+  function ensureScene(view, L, drawStatic) {
+    const key = `${view.cw}x${view.ch}:${view.ox},${view.oy}:${L.W}x${L.H}:${L.laneN}`; if (scene && sceneKey === key) return scene;
+    scene = document.createElement('canvas'); scene.width = view.cw; scene.height = view.ch; sceneKey = key;
+    const g = scene.getContext('2d'); g.setTransform(view.S, 0, 0, view.S, view.ox, view.oy); drawStatic(g); return scene;
+  }
+  function ensureVignette(view) {
+    const key = `${view.cw}x${view.ch}:${view.ox},${view.oy}`; if (vignette && vignetteKey === key) return vignette;
+    vignette = document.createElement('canvas'); vignette.width = view.cw; vignette.height = view.ch; vignetteKey = key;
+    const g = vignette.getContext('2d'); g.setTransform(view.S, 0, 0, view.S, view.ox, view.oy);
+    const v = g.createRadialGradient(DW / 2, DH / 2, DH * 0.35, DW / 2, DH / 2, DH * 0.75); v.addColorStop(0, 'rgba(255,90,110,0)'); v.addColorStop(1, 'rgba(255,90,110,0.18)');
+    g.fillStyle = v; g.fillRect(0, 0, DW, DH); return vignette;
+  }
+  let board = null, boardKey = '';
+  /** the board's static cells (landed, open, frontier) keyed by logical state; reserved cells are left for the live pass */
+  function ensureBoard(view, key, drawCells) {
+    if (board && boardKey === key) return board;
+    if (!board || board.width !== view.cw || board.height !== view.ch) { board = document.createElement('canvas'); board.width = view.cw; board.height = view.ch; }
+    boardKey = key; const g = board.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, view.cw, view.ch);
+    g.setTransform(view.S, 0, 0, view.S, view.ox, view.oy); drawCells(g); return board;
+  }
+  return { ensureWall, ensureScene, ensureVignette, ensureBoard, clear() { wall = scene = vignette = board = null; wallKey = sceneKey = vignetteKey = boardKey = ''; } };
 })();
 
 // ------------------------------ RENDER: drawing primitives ------------------------------
@@ -1059,10 +1142,9 @@ function drawBox(ctx, o, between) {
   const rot = (o.wobble || 0) * 0.06 + (o.shiver || 0) + (o.droop || 0) * 0.05;
   ctx.rotate(rot); const b = 1 + (o.bulge || 0) * 0.08; ctx.scale(b, 1 + (o.bulge || 0) * 0.05 - (o.droop || 0) * 0.08);
   ctx.translate(-w / 2, -h);
-  if (o.glow) { ctx.shadowColor = rgba(o.glowColor || T.danger, 0.55 * o.glow); ctx.shadowBlur = 16; }
+  if (o.glow) { const gs = Math.max(8, Math.round((w + 40) * view.S)); ctx.save(); ctx.globalAlpha = 0.8 * o.glow; ctx.drawImage(Sprites.glow(o.glowColor || T.danger, gs), -20, h * 0.2 - 20, w + 40, h * 0.8 + 40); ctx.restore(); }
   // interior (back)
   roundRect(ctx, 0, h * 0.2, w, h * 0.8, 5); ctx.fillStyle = darken(T.cardDark, 0.35); ctx.fill();
-  ctx.shadowBlur = 0;
   // back flap
   roundRect(ctx, 2, h * 0.02, w - 4, h * 0.26, 4); ctx.fillStyle = T.cardDark; ctx.fill();
   if (between) between();
@@ -1077,8 +1159,9 @@ function drawBox(ctx, o, between) {
 }
 
 // ------------------------------ RENDER: scene ------------------------------
-function drawWall(ctx, view) {
+function drawWall(ctx, view, raw) {
   const { cw, ch } = view;
+  if (!raw) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(Layers.ensureWall(view), 0, 0); return; }
   ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
   const g = ctx.createLinearGradient(0, 0, 0, ch); g.addColorStop(0, T.wallTop); g.addColorStop(1, T.wallBottom);
   ctx.fillStyle = g; ctx.fillRect(0, 0, cw, ch);
@@ -1099,11 +1182,13 @@ function drawTree(ctx, L) {
   // a small perch half way (decor)
   roundRect(ctx, x - 6, top + 262, 24, 8, 4); ctx.fillStyle = T.woodEdge; ctx.fill();
 }
-function drawShelf(ctx, L, flash) {
+function drawShelf(ctx, L, flash, plank = true) {
   const x0 = L.treeX - 14, x1 = L.slidePts[1].x + 4, y = L.shelfY;
-  roundRect(ctx, x0, y + 2, x1 - x0, 16, 4); ctx.fillStyle = T.woodEdge; ctx.fill();   // front edge
-  roundRect(ctx, x0, y - 2, x1 - x0, 9, 4); ctx.fillStyle = T.woodLight; ctx.fill();   // top face
-  ctx.fillStyle = rgba('#000000', 0.08); ctx.fillRect(x0 + 4, y + 12, x1 - x0 - 8, 3);
+  if (plank) {
+    roundRect(ctx, x0, y + 2, x1 - x0, 16, 4); ctx.fillStyle = T.woodEdge; ctx.fill();   // front edge
+    roundRect(ctx, x0, y - 2, x1 - x0, 9, 4); ctx.fillStyle = T.woodLight; ctx.fill();   // top face
+    ctx.fillStyle = rgba('#000000', 0.08); ctx.fillRect(x0 + 4, y + 12, x1 - x0 - 8, 3);
+  }
   if (flash > 0) { roundRect(ctx, x0, y - 2, x1 - x0, 20, 4); ctx.fillStyle = rgba(T.danger, 0.6 * flash); ctx.fill(); }
 }
 function slidePath(ctx, pts, dx, dy) {
@@ -1494,7 +1579,12 @@ function cellState(c, row) {
   if (G.mode === 'build') { if (G.present[c][row]) return 'landed'; if (seq < p) return 'reserved'; if (seq === p) return 'frontier'; return 'open'; }
   if (!G.present[c][row]) return 'empty'; if (seq < p) return 'reserved'; if (seq === p) return 'frontier'; return 'solid';
 }
-function drawBoard(ctx) {
+/**
+ * mode 'all': every cell live (used while a column nudges or a block settles, and while the frame breathes).
+ * mode 'static': only cells whose look does not change frame to frame (landed / solid / open / frontier) — cached by Layers.
+ * mode 'live': only the cells the cache leaves out (reserved cells pulse).
+ */
+function drawBoard(ctx, mode = 'all') {
   const G = Game, L = G.L, sim = G.sim, cell = L.cell, spx = Math.max(4, Math.round(cell * view.S)), sym = settings.symbols;
   const pulse = 0.40 + 0.06 * Math.sin(G.time * 5);
   ctx.save();
@@ -1503,6 +1593,8 @@ function drawBoard(ctx) {
     const len = sim.cols[c].length;
     for (let row = 0; row < len; row++) {
       const st = cellState(c, row); if (st === 'empty') continue;
+      if (mode === 'static' && st === 'reserved') continue;
+      if (mode === 'live' && st !== 'reserved') continue;
       const x = L.cellX(c), y = L.cellY(row) + nudge, color = sim.cols[c][G.mode === 'yoink' ? len - 1 - row : row], hex = PALETTE[color].hex;
       if (st === 'landed' || st === 'solid' || (st === 'frontier' && G.mode === 'yoink') || (st === 'reserved' && G.mode === 'yoink')) {
         let sy = 1, sx = 1;
@@ -1515,10 +1607,10 @@ function drawBoard(ctx) {
         if (st === 'frontier') { roundRect(ctx, x + 0.75, y + 0.75, cell - 1.5, cell - 1.5, cell * 0.22); ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1.5; ctx.stroke(); }
         continue;
       }
-      roundRect(ctx, x, y, cell, cell, cell * 0.22);
-      if (st === 'reserved') { ctx.fillStyle = rgba(hex, pulse); ctx.fill(); }
-      else { ctx.fillStyle = rgba(hex, 0.20); ctx.fill(); if (st === 'frontier') { roundRect(ctx, x + 0.75, y + 0.75, cell - 1.5, cell - 1.5, cell * 0.22); ctx.strokeStyle = rgba(hex, 0.70); ctx.lineWidth = 1.5; ctx.stroke(); } }
-      if (sym) { ctx.fillStyle = rgba(hex, st === 'reserved' ? 0.6 : 0.4); ctx.font = `700 ${Math.round(cell * 0.5)}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(SYMBOLS[color], x + cell / 2, y + cell / 2 + cell * 0.05); }
+      if (st === 'reserved') {
+        roundRect(ctx, x, y, cell, cell, cell * 0.22); ctx.fillStyle = rgba(hex, pulse); ctx.fill();
+        if (sym) { ctx.fillStyle = rgba(hex, 0.6); ctx.font = `700 ${Math.round(cell * 0.5)}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(SYMBOLS[color], x + cell / 2, y + cell / 2 + cell * 0.05); }
+      } else ctx.drawImage(Sprites.ghost(color, spx, st, sym, cell), x, y, cell, cell);
     }
   }
   ctx.restore();
@@ -1641,13 +1733,30 @@ function render() {
   if (!G.sim) return;
   const L = G.L, sim = G.sim;
   const failing = G.state === 'failing' || G.state === 'failed';
-  drawLaneRugs(ctx, L); drawFlap(ctx, L); drawTree(ctx, L);
   const breathe = G.state === 'winning' ? 1 + 0.04 * Math.sin(clamp(G.stateT / 0.8, 0, 1) * Math.PI) : 1;
-  drawFrame(ctx, L, breathe);
-  ctx.save(); if (breathe !== 1) { ctx.translate(DW / 2, L.wellY + L.wellH / 2); ctx.scale(breathe, breathe); ctx.translate(-DW / 2, -(L.wellY + L.wellH / 2)); }
-  drawBoard(ctx); ctx.restore();
-  drawShelf(ctx, L, G.shelfFlash);
-  drawSlide(ctx, L);
+  const drawStatic = (g) => { drawLaneRugs(g, L); drawFlap(g, L); drawTree(g, L); drawFrame(g, L, 1); drawShelf(g, L, 0); drawSlide(g, L); };
+  if (breathe === 1) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(Layers.ensureScene(view, L, drawStatic), 0, 0);
+    ctx.setTransform(view.S, 0, 0, view.S, view.ox, view.oy);
+    const settling = G.settle.length > 0 || G.colNudge.some(n => n > 0);
+    if (settling) drawBoard(ctx, 'all');
+    else {
+      // the static cells are a function of the logical state only: re-rasterised on dispatch / landing / settings changes
+      let present = 0; for (const col of G.present) for (const v of col) if (v) present++;
+      const key = `${sim.ptr.join(',')}|${present}|${settings.symbols ? 1 : 0}|${G.mode}|${L.cell}|${view.S}`;
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(Layers.ensureBoard(view, key, (g) => drawBoard(g, 'static')), 0, 0);
+      ctx.setTransform(view.S, 0, 0, view.S, view.ox, view.oy);
+      drawBoard(ctx, 'live');
+    }
+    if (G.shelfFlash > 0) drawShelf(ctx, L, G.shelfFlash, false);
+  } else {
+    drawLaneRugs(ctx, L); drawFlap(ctx, L); drawTree(ctx, L);
+    drawFrame(ctx, L, breathe);
+    ctx.save(); ctx.translate(DW / 2, L.wellY + L.wellH / 2); ctx.scale(breathe, breathe); ctx.translate(-DW / 2, -(L.wellY + L.wellH / 2));
+    drawBoard(ctx); ctx.restore();
+    drawShelf(ctx, L, G.shelfFlash);
+    drawSlide(ctx, L);
+  }
   drawFallingBlocks(ctx);
   drawSweepsAndWave(ctx);
   drawLanes(ctx);
@@ -1662,8 +1771,7 @@ function render() {
   // vignette when the tray is full
   const used = sim.boxesUsed(), cap = sim.boxes.length;
   if (used >= cap && (G.state === 'playing') && !reducedMotion()) {
-    const v = ctx.createRadialGradient(DW / 2, DH / 2, DH * 0.35, DW / 2, DH / 2, DH * 0.75); v.addColorStop(0, 'rgba(255,90,110,0)'); v.addColorStop(1, 'rgba(255,90,110,0.18)');
-    ctx.fillStyle = v; ctx.fillRect(0, 0, DW, DH);
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(Layers.ensureVignette(view), 0, 0); ctx.restore();
   }
   if (failing) { ctx.fillStyle = `rgba(120,110,130,${0.3 * clamp(G.stateT / 0.5, 0, 1)})`; ctx.fillRect(0, 0, DW, DH); }
 }
@@ -1971,7 +2079,7 @@ function resize() {
   const sx = (w - DW * scale) / 2, sy = (h - DH * scale) / 2;
   view.ox = Math.round(sx * dpr); view.oy = Math.round(sy * dpr);
   const stage = $('#stage'); stage.style.transform = `translate(${sx}px, ${sy}px) scale(${scale})`;
-  Sprites.clear();
+  Sprites.clear(); Layers.clear();
 }
 function loop(now) {
   const G = Game;
