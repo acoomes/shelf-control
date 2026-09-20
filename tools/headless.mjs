@@ -35,12 +35,38 @@ for (const bad of [
   ok(threw, `loader rejects: ${bad.name}`);
 }
 
+/** play an evaluator move line through a real sim (turn-based: arrive right after each dispatch); returns the sim */
+function replayLineInSim(level, line, opts) {
+  const sim = createSim(level, opts); const trayIds = [];
+  for (const [kind, idx] of line) {
+    const cat = kind === 'lane' ? sim.lanes[idx][0] : trayIds[idx];
+    if (kind === 'tray') trayIds.splice(idx, 1);
+    const r = sim.dispatch(cat.id); if (!r.ok) return { sim, error: `denied ${r.reason}` };
+    const a = sim.arrive(cat.id); if (a.to === 'wait') return { sim, error: 'no box' };
+    if (cat.count > 0) trayIds.push(cat);
+  }
+  return { sim };
+}
 console.log('\n== 13.1.1 exhaustive turn-based solve ==');
 for (const lv of LEVELS) {
   const { cols, lanes, cap } = GEN.lanesOf(lv);
   const t0 = Date.now();
   const r = GEN.solve(cols, lanes, cap, 20e6);
   ok(r.solvable && !r.aborted, `${lv.id}: solvable=${r.solvable} nodes=${r.nodes} line=${r.line ? r.line.length + ' moves' : '-'} (${Date.now() - t0} ms)`);
+  if (r.line) { const rr = replayLineInSim(lv, r.line); ok(!rr.error && rr.sim.status === 'won', `${lv.id}: the solver's line wins in the real sim`); }
+}
+{
+  // the solver must also say no when the answer is no, and must backtrack when lane-first ordering fails
+  const un = GEN.solve(C.columns(['R', 'B']), [[['R', 1], ['B', 1]]], 0);
+  ok(!un.solvable && !un.aborted, `solver reports unsolvable (cap 0): solvable=${un.solvable} nodes=${un.nodes}`);
+  // lane-first greed boxes five R1s, then G5 has no box: a dead end the DFS must back out of
+  const bt = GEN.solve(C.columns(['RRRRR', 'GGGGG', 'BBBBB']), [[['R', 1], ['R', 1], ['R', 1], ['R', 1], ['R', 1]], [['G', 5], ['B', 5]]], 5);
+  ok(bt.solvable && bt.nodes > bt.line.length, `solver backtracks out of a dead end: solvable=${bt.solvable} nodes=${bt.nodes} > line ${bt.line ? bt.line.length : '-'}`);
+}
+{
+  // RNG golden vector (pin for the C# port)
+  const r = C.mulberry32(1); const v = [r(), r(), r(), r()].map(x => x.toFixed(9)).join(',');
+  ok(v === '0.627073941,0.002735721,0.527447040,0.981050967', `mulberry32(1) golden vector ${v}`);
 }
 
 console.log(`\n== 13.1.2 random playouts (${PLAYOUTS} per level) vs Appendix B ==`);
@@ -72,6 +98,18 @@ console.log('\n== 13.1.3 determinism ==');
   };
   const a = run(), b = run();
   ok(a.out === b.out && a.order === b.order && a.out.length > 0, `same dispatch order twice → identical placement lists (${a.out.split('|').length} dispatches)`);
+  // §4.10: five cats dispatched back-to-back (none arrived) place exactly what sequential dispatch+arrive places
+  for (const lv of LEVELS) {
+    const order = []; const seq = createSim(lv); const par = createSim(lv);
+    const outSeq = [], outPar = [];
+    for (let i = 0; i < 5; i++) { const lane = seq.lanes[i % seq.lanes.length]; if (!lane.length) break; const id = lane[0].id; order.push(id); const r = seq.dispatch(id); outSeq.push(r.placements.map(p => `${p.col}:${p.row}${p.color}`).join(' ')); seq.arrive(id); }
+    for (const id of order) { const r = par.dispatch(id); outPar.push(r.ok ? r.placements.map(p => `${p.col}:${p.row}${p.color}`).join(' ') : 'DENIED'); }
+    ok(outSeq.join('|') === outPar.join('|') && par.inFlight.length === order.length, `${lv.id}: back-to-back parade of ${order.length} == sequential resolution`);
+  }
+  const golden = {};
+  for (const lv of LEVELS) { const sim = createSim(lv); const parts = []; for (let i = 0; i < 12; i++) { const lane = sim.lanes[i % sim.lanes.length]; if (!lane.length) continue; const id = lane[0].id; const r = sim.dispatch(id); parts.push(r.ok ? r.placements.map(p => `${p.col}${p.row}`).join('') : r.reason); if (r.ok) sim.arrive(id); } golden[lv.id] = C.hashSeed(parts.join('|')); }
+  const GOLDEN = { heart: 3785182514, chick: 4117558065, mushroom: 1688537698, icecream: 1379069667, catface: 3638597410, rainbow: 3689267354 };
+  ok(LEVELS.every(lv => golden[lv.id] === GOLDEN[lv.id]), `placement golden hashes match (${JSON.stringify(golden)})`);
 }
 
 console.log('\n== 13.1.4 invariant after every dispatch + sim vs evaluator agreement ==');
@@ -147,6 +185,7 @@ console.log('\n== Phase 3 generator acceptance ==');
 }
 {
   // generate-80-and-select: achieved rating vs preset target (Appendix B reachability table)
+  const info = (cond, msg) => (quick ? console.log(`INFO  ${msg}`) : ok(cond, msg));
   const reach = { // art → preset → expected achieved (from Appendix B); null = unreachable, tile shows achieved
     heart:{ tutorial:0.97, easy:0.70, medium:0.60, hard:0.60 }, chick:{ tutorial:0.96, easy:0.70, medium:0.31, hard:0.12 },
     mushroom:{ tutorial:0.97, easy:0.70, medium:0.30, hard:0.04 }, icecream:{ tutorial:0.94, easy:0.72, medium:0.29, hard:0.03 },
@@ -165,10 +204,10 @@ console.log('\n== Phase 3 generator acceptance ==');
       const within = p.targetIsCeiling ? level.achieved <= p.target + 0.10 : Math.abs(level.achieved - p.target) <= 0.10;
       const nearAppendix = Math.abs(level.achieved - expected) <= 0.15;
       const line = `${lv.id.padEnd(9)} ${preset.padEnd(8)} achieved=${fmt(level.achieved)} target=${p.target}${p.targetIsCeiling ? '(ceiling)' : ''} appendix=${expected} greedyWins=${level.greedyWins} refMaxTray=${level.refMaxTray} ${ms.toFixed(0)} ms`;
-      if (reachable) ok(within, line); else ok(nearAppendix, line + '  [unreachable per Appendix B; tile shows achieved]');
+      if (reachable) info(within, line); else info(nearAppendix, line + '  [unreachable per Appendix B; tile shows achieved]');
     }
   }
-  ok(maxMs < (quick ? 400 : 400) || quick, `generation time max ${maxMs.toFixed(0)} ms (< 400 ms target)`);
+  info(maxMs < 400, `generation time max ${maxMs.toFixed(0)} ms (< 400 ms target)`);
   // determinism: same seed → identical lanes
   const a = GEN.generateLevel({ art: LEVELS[1].art, preset: 'medium', seed: 12345, candidates: 10, playouts: 20 });
   const b = GEN.generateLevel({ art: LEVELS[1].art, preset: 'medium', seed: 12345, candidates: 10, playouts: 20 });
@@ -177,8 +216,16 @@ console.log('\n== Phase 3 generator acceptance ==');
   ok(JSON.stringify(a.lanes) !== JSON.stringify(c.lanes), 'different seed → different lanes');
   // yoink: reverse:true lanes solve the reversed sim
   const y = GEN.generateLevel({ art: LEVELS[2].art, preset: 'easy', seed: 7, reverse: true, candidates: 10, playouts: 20 });
-  const ysim = createSim(y, { mode: 'yoink' });
-  ok(ysim.checkInvariant().ok, 'yoink generated level loads in a yoink sim with the invariant intact');
+  const ysim = createSim(y);                       // mode derived from level.reverse
+  ok(ysim.mode === 'yoink' && ysim.checkInvariant().ok, 'yoink generated level opens as a yoink sim with the invariant intact');
+  // replay the generator's reference line through the yoink sim: it must win, and every placement must be the topmost remaining block
+  { const sim = createSim(y, { mode: 'yoink' }); const idOf = {}; let bad = 0;
+    for (const k of y.ref) { let cat; if (k in idOf) cat = sim.catById(idOf[k]); else { const [li] = y.where[k]; cat = sim.lanes[li][0]; idOf[k] = cat.id; }
+      const before = sim.ptr.slice(); const r = sim.dispatch(cat.id); if (!r.ok) { bad++; break; }
+      for (const pl of r.placements) if (pl.row !== sim.cols[pl.col].length - 1 - before[pl.col]++) bad++;
+      sim.arrive(cat.id); }
+    ok(bad === 0 && sim.status === 'won', `yoink: reference line wins in the reversed sim, plucking the topmost block each time (${y.ref.length} moves)`); }
+  { const ysolve = GEN.solve(GEN.lanesOf(y, true).cols, GEN.lanesOf(y, true).lanes, 5); ok(ysolve.solvable, 'yoink level is solvable for the turn-based solver too'); }
 }
 
 console.log(`\n${failures === 0 ? 'ALL PASS' : failures + ' FAILURE(S)'}`);

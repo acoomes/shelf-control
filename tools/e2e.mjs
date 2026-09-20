@@ -116,7 +116,7 @@ const scenarios = {
     ok(s.waiting.length === 0 && s.stats.graceSaves === 1 && s.state === 'playing', `grace save: waiter seated (graceSaves=${s.stats.graceSaves})`);
     await api.shot('grace-saved');
     s = await api.settle();
-    ok(s.status === 'playing' && s.boxes.filter(Boolean).length === 5, `tray back to 5/5 after the save (boxes=${s.boxes.join(',')})`);
+    ok(s.status === 'playing' && s.boxes.filter(b => b !== null).length === 5, `tray back to 5/5 after the save (boxes=${s.boxes.join(',')})`);
   },
   async graceFail(api) {
     await api.start(FIX.graceSave);

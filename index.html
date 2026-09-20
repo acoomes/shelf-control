@@ -255,7 +255,7 @@ function parseLane(str) {
   const out = [];
   for (const tok of String(str).trim().split(/\s+/)) {
     if (!tok) continue;
-    const m = /^([A-Z])(\d+)$/.exec(tok);
+    const m = /^([A-Z])([0-9]+)$/.exec(tok);
     if (!m) throw new LevelError(`bad cat token '${tok}'`);
     const count = parseInt(m[2], 10);
     if (!PALETTE[m[1]]) throw new LevelError(`unknown colour key '${m[1]}' in lane`);
@@ -285,16 +285,19 @@ function loadLevel(level, opts = {}) {
   const lanes = level.lanes.map(l => (typeof l === 'string' ? parseLane(l) : l.map(c => ({ color: c.color, count: c.count }))));
   const need = colorCounts(cols), have = {};
   for (const lane of lanes) for (const c of lane) {
-    if (!PALETTE[c.color]) throw new LevelError(`unknown colour key '${c.color}' in lane`);
+    if (typeof c.color !== 'string' || !PALETTE[c.color]) throw new LevelError(`unknown colour key '${c.color}' in lane`);
+    if (!Number.isInteger(c.count) || c.count <= 0) throw new LevelError(`cat ${c.color}${c.count} carries no blocks`);
     have[c.color] = (have[c.color] || 0) + c.count;
   }
+  for (const k of ['tray', 'shelf']) if (level[k] !== undefined && !(Number.isInteger(level[k]) && level[k] > 0)) throw new LevelError(`${k} must be a positive integer`);
+  if (cols.every(s => s.length === 0)) throw new LevelError('board has no blocks');
   for (const k of new Set([...Object.keys(need), ...Object.keys(have)])) {
     if ((need[k] || 0) !== (have[k] || 0)) throw new LevelError(`colour ${k}: cells=${need[k] || 0} but cats carry ${have[k] || 0}`);
   }
   const H = level.art.length, W = level.art[0].length;
   return { id: level.id || 'level', name: level.name || 'Level', art: level.art.slice(), W, H, cols, lanes,
-           trayCapacity: level.tray || CONFIG.trayCapacity, shelfCapacity: level.shelf || CONFIG.shelfCapacity,
-           colorCounts: need, seed: level.seed, preset: level.preset, achieved: level.achieved, greedyWins: level.greedyWins };
+           trayCapacity: level.tray ?? CONFIG.trayCapacity, shelfCapacity: level.shelf ?? CONFIG.shelfCapacity,
+           reverse: !!opts.reverse, colorCounts: need, seed: level.seed, preset: level.preset, achieved: level.achieved, greedyWins: level.greedyWins };
 }
 
 /** Loader assertions for the baked set (called at boot; fails loudly). */
@@ -465,7 +468,7 @@ const GEN = (() => {
     const ptr = new Array(cols.length).fill(0), pos = new Array(L.length).fill(0);
     const seen = new Set(); let nodes = 0; let aborted = false;
     const line = [];
-    function key(tray) { return ptr.join(',') + '|' + pos.join(',') + '|' + tray.map(t => t[0] + t[1]).sort().join(','); }
+    function key(tray) { return ptr.join(',') + '|' + pos.join(',') + '|' + tray.map(t => `${t[0]}${t[1]}`).sort().join(','); }
     function dfs(tray) {
       if (allDone(cols, ptr)) return true;
       const k = key(tray);
@@ -492,7 +495,7 @@ const GEN = (() => {
    * generate-80-and-select (plan §12 Phase 3). Same seed → identical result.
    * art: string[] rows. preset: key of PRESETS. Returns a level object usable by createSim, plus ratings.
    */
-  function generateLevel({ art, preset = 'easy', seed = 1, reverse = false, candidates = 80, playouts = 100, trayCap = 5 }) {
+  function generateLevel({ art, preset = 'easy', seed = 1, reverse = false, candidates = 80, playouts = 100, rerate = 300, trayCap = 5 }) {
     const p = PRESETS[preset]; if (!p) throw new Error(`unknown preset ${preset}`);
     let cols = columns(art);
     if (reverse) cols = cols.map(s => s.slice().reverse());
@@ -510,11 +513,15 @@ const GEN = (() => {
         best = { g, rate, greedyWins, dist, tie, index: i };
       }
     }
+    // The selection score is biased (winner's curse: the best of 80 noisy estimates); re-rate the winner with a
+    // fresh batch so the tile shows an honest number. Selection itself still uses the cheap estimate.
+    const rerated = randomWinRate(best.g.cols, best.g.lanes, trayCap, rng, rerate);
     const lanes = best.g.lanes.map(l => l.map(([color, count]) => ({ color, count })));
     const level = {
       id: `gen-${preset}-${seed >>> 0}`, name: 'Generated', art: art.slice(), lanes: lanes.map(laneToString),
-      seed: seed >>> 0, preset, achieved: best.rate, greedyWins: best.greedyWins, refMaxTray: best.g.maxTray,
+      seed: seed >>> 0, preset, achieved: rerated, selectionScore: best.rate, greedyWins: best.greedyWins, refMaxTray: best.g.maxTray,
       reverse, target: p.target, targetIsCeiling: !!p.targetIsCeiling, candidateIndex: best.index,
+      ref: best.g.ref.slice(), where: best.g.where,   // the reference line (proof of solvability), replayable through createSim
     };
     loadLevel(level, { reverse });   // loader assertions must hold for generated levels too
     return level;
@@ -532,12 +539,17 @@ const GEN = (() => {
 // ================================ SIM ===============================
 /**
  * createSim(level, opts) — the whole game as a deterministic, turn-based puzzle (plan §6.3).
- * opts.mode: 'build' (default) | 'yoink' (columns reversed; frontier = topmost remaining block).
- * The presentation layer only ever calls: dispatch, arrive, assignWaiting, graceExpired, addBox, isStuck,
- * canPlaceNow, isTappable, and reads the public fields.
+ * opts.mode: 'build' | 'yoink'. When absent, a level generated with reverse:true is yoink, anything else build.
+ * In yoink mode `cols[c]` is the placement SEQUENCE (top→bottom); placements carry both `idx` (sequence index)
+ * and `row` (visual row from the bottom), and renderers must use `row` / `rowOf` / `frontierRow`.
+ * Contract with the presentation (it is the only caller): arrive() is called when a cat physically reaches the
+ * slide's end and never out of dispatch order; assignWaiting() is called after every box frees; graceExpired()
+ * only after the caller's own grace timer runs out. Deny reasons: 'not_tappable' | 'shelf_full' |
+ * 'nothing_to_place' | 'not_playing' | 'unknown_cat' (only the first three are §4.9 soft denies and count as deniedTaps).
+ * addBox() is permissive; "once per attempt" is enforced by the presentation.
  */
 function createSim(level, opts = {}) {
-  const mode = opts.mode || CONFIG.mode || 'build';
+  const mode = opts.mode ?? (level && level.reverse ? 'yoink' : 'build');
   const burst = opts.burstDrop ?? CONFIG.burstDrop;
   const L = loadLevel(level, { reverse: mode === 'yoink' });
   const cols = L.cols, W = cols.length;
