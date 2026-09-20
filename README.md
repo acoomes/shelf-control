@@ -13,7 +13,7 @@ Keys on desktop: `D` toggles the debug overlay, `R` restarts, `Esc` closes dialo
 ## Test it
 
 ```
-node tools/headless.mjs          # plan §13.1 + Phase 3 acceptance (≈90 s); --quick for a 5 s smoke run
+node tools/headless.mjs          # plan §13.1 + Phase 3 acceptance (≈90 s); --quick for a 5 s smoke run; --timing also asserts the 400 ms generation budget
 node tools/e2e.mjs               # Playwright scenarios in a real Chromium (fake clock); SHOTS=dir saves screenshots
 node tools/perf.mjs              # frame times per phase under 4x CPU throttling, plus a CPU profile of a parade
 ```

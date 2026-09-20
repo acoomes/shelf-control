@@ -3,6 +3,7 @@
 // Extracts the pure <script id="core"> from index.html and runs it in a bare VM context.
 //   node tools/headless.mjs            # full run
 //   node tools/headless.mjs --quick    # fewer playouts / candidates
+//   node tools/headless.mjs --timing   # also assert the 400 ms generation budget (host-dependent)
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -18,6 +19,7 @@ const C = sandbox.module.exports;
 const { LEVELS, BACKTEST, GEN, createSim, makeRng, loadLevel, validateBakedLevels } = C;
 
 const quick = process.argv.includes('--quick');
+const timing = process.argv.includes('--timing');   // wall-clock generation budget is host-dependent: assert only when asked
 const PLAYOUTS = quick ? 300 : 1000;
 let failures = 0;
 const ok = (cond, msg) => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${msg}`); if (!cond) failures++; };
@@ -209,7 +211,7 @@ console.log('\n== Phase 3 generator acceptance ==');
       if (reachable) info(within, line); else info(nearAppendix, line + '  [unreachable per Appendix B; tile shows achieved]');
     }
   }
-  info(maxMs < 400, `generation time max ${maxMs.toFixed(0)} ms (< 400 ms target)`);
+  if (timing) ok(maxMs < 400, `generation time max ${maxMs.toFixed(0)} ms (< 400 ms target)`); else console.log(`INFO  generation time max ${maxMs.toFixed(0)} ms (plan target < 400 ms on desktop; run with --timing to assert it)`);
   // determinism: same seed → identical lanes
   const a = GEN.generateLevel({ art: LEVELS[1].art, preset: 'medium', seed: 12345, candidates: 10, playouts: 20 });
   const b = GEN.generateLevel({ art: LEVELS[1].art, preset: 'medium', seed: 12345, candidates: 10, playouts: 20 });
