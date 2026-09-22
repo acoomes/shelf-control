@@ -102,6 +102,8 @@ const CONFIG = {
   stuckBeat: 0.8,
   comboWindow: 1.2,        // seconds; landing-melody ladder
   burstDrop: false,        // experimental; breaks difficulty, see plan §4.3
+  autoFinish: true,        // the last cat with blocks left laps the shelf by itself instead of asking for the same tap again
+  autoFinishSpeed: 2.5,    // path speed multiplier while it does
   assist: true, symbols: false, sound: true,
   dprCap: 2, fixedStep: 1 / 120,
 };
@@ -620,7 +622,7 @@ function createSim(level, opts = {}) {
     inFlight: [],
     status: 'playing', failReason: null,
     shelfCapacity: opts.shelfCapacity ?? L.shelfCapacity,
-    stats: { dispatches: 0, zeroPlaceDispatches: 0, maxBoxesUsed: 0, graceSaves: 0, continuesUsed: 0, deniedTaps: 0, placedBlocks: 0 },
+    stats: { dispatches: 0, zeroPlaceDispatches: 0, maxBoxesUsed: 0, graceSaves: 0, continuesUsed: 0, deniedTaps: 0, placedBlocks: 0, autoLoops: 0 },
   };
   const totalCells = cols.reduce((a, s) => a + s.length, 0);
 
@@ -656,6 +658,22 @@ function createSim(level, opts = {}) {
     return GEN.runPass(cols, ptr.slice(), c.color, c.count, burst);
   };
 
+  /** one pass along the shelf: a block into every column whose next cell is the cat's colour (all of them in a burst when burstDrop) */
+  function placePass(c) {
+    const placements = [];
+    for (let col = 0; col < W; col++) {
+      const s = cols[col];
+      if (c.count > 0 && ptr[col] < s.length && s[ptr[col]] === c.color) {
+        placements.push({ col, row: rowOf(col, ptr[col]), idx: ptr[col], color: c.color });
+        ptr[col]++; c.count--;
+        if (burst) while (c.count > 0 && ptr[col] < s.length && s[ptr[col]] === c.color) {
+          placements.push({ col, row: rowOf(col, ptr[col]), idx: ptr[col], color: c.color }); ptr[col]++; c.count--;
+        }
+      }
+    }
+    return placements;
+  }
+
   sim.dispatch = (id) => {
     const c = cat(id);
     if (sim.status !== 'playing') return { ok: false, reason: 'not_playing' };
@@ -668,17 +686,7 @@ function createSim(level, opts = {}) {
     if (c.where === 'lane') lanes[c.lane].shift(); else sim.boxes[c.slot] = null;
     const from = c.where, fromSlot = c.slot;
     c.where = 'flight'; c.slot = -1;
-    const placements = [];
-    for (let col = 0; col < W; col++) {
-      const s = cols[col];
-      if (c.count > 0 && ptr[col] < s.length && s[ptr[col]] === c.color) {
-        placements.push({ col, row: rowOf(col, ptr[col]), idx: ptr[col], color: c.color });
-        ptr[col]++; c.count--;
-        if (burst) while (c.count > 0 && ptr[col] < s.length && s[ptr[col]] === c.color) {
-          placements.push({ col, row: rowOf(col, ptr[col]), idx: ptr[col], color: c.color }); ptr[col]++; c.count--;
-        }
-      }
-    }
+    const placements = placePass(c);
     sim.inFlight.push(c);
     sim.stats.dispatches++; sim.stats.placedBlocks += placements.length;
     if (placements.length === 0) sim.stats.zeroPlaceDispatches++;
@@ -701,6 +709,30 @@ function createSim(level, opts = {}) {
     }
     c.where = 'wait';
     return { to: 'wait' };
+  };
+
+  /** true when this cat is the only one still carrying blocks: nothing waits in a lane or a box and nobody else in flight has any
+   *  left. The ending is then settled (every remaining cell is its colour, by the loader invariant), which is what auto-finish keys on. */
+  sim.isLastCat = (id) => {
+    const c = cat(id); if (!c || c.count === 0) return false;
+    for (const l of lanes) if (l.length) return false;
+    for (const b of sim.boxes) if (b) return false;
+    for (const o of sim.inFlight) if (o !== c && o.count > 0) return false;
+    return true;
+  };
+
+  /** auto-finish: the last cat, in flight with blocks left, goes straight round for another pass instead of resting in a box */
+  sim.loopAround = (id) => {
+    const c = cat(id);
+    if (sim.status !== 'playing') return { ok: false, reason: 'not_playing' };
+    if (!c || c.where !== 'flight') return { ok: false, reason: 'not_in_flight' };
+    if (!sim.isLastCat(c)) return { ok: false, reason: 'not_last' };
+    if (sim.canPlaceNow(c) === 0) return { ok: false, reason: 'nothing_to_place' };
+    const placements = placePass(c);
+    sim.inFlight.splice(sim.inFlight.indexOf(c), 1); sim.inFlight.push(c);   // newest on the loop again, as a fresh dispatch would be
+    sim.stats.autoLoops++; sim.stats.placedBlocks += placements.length;
+    if (GEN.allDone(cols, ptr)) sim.status = 'won';
+    return { ok: true, placements, remaining: c.count, cat: c };
   };
 
   /** call after any box frees → [{ catId, slot }] (each one is a grace save) */
@@ -827,7 +859,7 @@ const Store = (() => {
     clear() { for (const k of Object.keys(mem)) delete mem[k]; try { if (ls) for (const k of Object.keys(ls)) if (k.startsWith('sc.')) ls.removeItem(k); } catch (e) { /* ignore */ } },
   };
 })();
-const settings = Object.assign({ sound: CONFIG.sound, symbols: CONFIG.symbols, assist: CONFIG.assist, motion: 'auto', seenTips: {} }, Store.get('sc.settings', {}));
+const settings = Object.assign({ sound: CONFIG.sound, symbols: CONFIG.symbols, assist: CONFIG.assist, autoFinish: CONFIG.autoFinish, motion: 'auto', seenTips: {} }, Store.get('sc.settings', {}));
 const progress = Object.assign({ done: {} }, Store.get('sc.progress', {}));
 const saveSettings = () => { Store.set('sc.settings', settings); applyMotionClass(); };
 const saveProgress = () => Store.set('sc.progress', progress);
@@ -1337,6 +1369,7 @@ function fireTap(target) {
   if (!r.ok) { denyFeedback(a, r.reason); return; }
   const wasBoxed = r.from === 'box';
   startHop(a, r.placements);
+  if (r.remaining > 0 && settings.autoFinish && sim.isLastCat(a.id)) beginAutoFinish(a);   // the ending is settled from this tap on
   if (wasBoxed) { G.boxFx[r.fromSlot] = { bulge: 0, t: 0 }; seatWaiting(sim.assignWaiting(), false); }
   else { refreshLaneIndices(); }
   UI.tutorialEvent('dispatch');
@@ -1345,8 +1378,29 @@ function startHop(a, placements) {
   const G = Game, L = G.L;
   a.pending = placements.slice(); a.state = 'hop'; a.t = 0;
   a.from = { x: a.x, y: a.y, s: a.s }; a.to = { x: L.treeX, y: L.treeBaseY - 15 * L.shelfScale };
-  a.squashY = 0.85; a.squashX = 1.12; a.dir = -1; a.alpha = 1; a.tilt = 0; a.bounce = 0; a.glow = 0; a.slot = -1; a.dim = false;
+  a.squashY = 0.85; a.squashX = 1.12; a.dir = -1; a.alpha = 1; a.tilt = 0; a.bounce = 0; a.glow = 0; a.slot = -1; a.dim = false; a.fast = false; a.hopDur = 0;
   G.flight.push(a); G.lastDispatched = a; G.lastDispatchAt = G.time;
+  Audio.pop();
+}
+// ---------- auto-finish: the last cat with blocks left plays out the assured ending by itself ----------
+function beginAutoFinish(a) {
+  if (a.fast) return;
+  a.fast = true; addText(a.x, a.y - 46, 'auto-finish!', T.ink, 18, 1.2);
+}
+/** end of a pass: the shelf's end on a fast lap, the slide's end otherwise. Loop when this is the last cat with blocks; else arrive as usual. */
+function endOfPass(a) {
+  const G = Game, sim = G.sim, c = sim.cats[a.id];
+  if (settings.autoFinish && c.count > 0 && G.state === 'playing' && sim.isLastCat(a.id)) {
+    const r = sim.loopAround(a.id);
+    if (r.ok) { beginAutoFinish(a); startLoopHop(a, r.placements); return; }
+  }
+  arriveActor(a);
+}
+function startLoopHop(a, placements) {
+  const L = Game.L;
+  a.pending = placements.slice(); a.state = 'hop'; a.t = 0; a.hopDur = 0.3;   // still on the loop (G.flight): no push, no dispatch-gap bump
+  a.from = { x: a.x, y: a.y, s: a.s }; a.to = { x: L.treeX, y: L.treeBaseY - 15 * L.shelfScale };
+  a.squashY = 0.85; a.squashX = 1.12; a.dir = -1; a.tilt = 0; a.legPhase = null;
   Audio.pop();
 }
 function denyFeedback(a, reason) {
@@ -1467,22 +1521,25 @@ function update(dt) {
   for (let i = 0; i < G.flight.length; i++) {
     const a = G.flight[i], prev = i > 0 ? G.flight[i - 1] : null;
     if (a.state === 'hop') {
-      a.t += dt; const u = clamp(a.t / 0.22, 0, 1), e = easeInOut(u);
+      a.t += dt; const u = clamp(a.t / (a.hopDur || 0.22), 0, 1), e = easeInOut(u);
       a.x = lerp(a.from.x, a.to.x, e); a.y = lerp(a.from.y, a.to.y, e) - Math.sin(u * Math.PI) * 70; a.s = lerp(a.from.s, L.shelfScale, u);
       if (u >= 1) { a.state = 'path'; a.pathS = 0; a.x = a.to.x; a.y = a.to.y; a.dir = 1; a.walkT = 0; }
     } else if (a.state === 'path') {
       let maxS = Infinity;
       if (prev && (prev.state === 'path' || prev.state === 'wait')) maxS = prev.pathS - L.gapPx;
-      const v = L.segSpeed(a.pathS); let ns = Math.min(a.pathS + v * dt, maxS); if (ns < a.pathS) ns = a.pathS;
+      const mul = a.fast ? CONFIG.autoFinishSpeed : 1;
+      const v = L.segSpeed(a.pathS) * mul; let ns = Math.min(a.pathS + v * dt, maxS); if (ns < a.pathS) ns = a.pathS;
       a.moving = ns > a.pathS + 1e-9; a.pathS = ns;
       const p = L.pathPoint(a.pathS); a.seg = p.seg; a.x = p.x; a.y = p.y - 15 * a.s; a.dir = 1;
       if (p.seg === 'walk') {
-        if (a.moving) a.walkT += dt;
+        if (a.moving) a.walkT += dt * mul;
         a.legPhase = (a.walkT * 3) % 1; a.tilt = 0;
         while (a.pending.length && a.x >= L.cellCX(a.pending[0].col)) triggerDrop(a, a.pending.shift());
       } else if (p.seg === 'slide') { a.legPhase = null; a.tilt = clamp((p.ang || 0) * 0.45, 0, 0.75); a.squashY = lerp(a.squashY, 1.06, 0.2); }
-      else { a.legPhase = (a.walkT += dt * 1.5) % 1; a.tilt = -0.15; }
-      if (a.pathS >= L.pathLen - 0.01) arriveActor(a);
+      else { a.legPhase = (a.walkT += dt * 1.5 * mul) % 1; a.tilt = -0.15; }
+      // a fast lap with blocks still to drop turns round at the shelf's end; the final lap slides out to the flap as usual
+      const endS = a.fast && sim.cats[a.id].count > 0 ? L.climbLen + L.walkLen : L.pathLen;
+      if (a.pathS >= endS - 0.01) endOfPass(a);
     } else if (a.state === 'wait') {
       a.t += dt;
       if (!head) { head = a; a.grace += dt; a.tilt = reducedMotion() ? 0 : Math.sin(a.t * 9) * 0.10; if (a.grace >= CONFIG.graceSeconds && G.state === 'playing') graceExpire(a); }
@@ -1592,7 +1649,7 @@ function finishLevel(result, reason) {
   const G = Game, sim = G.sim, st = sim.stats;
   const rec = { level: G.def.id, art: G.def.artId || (G.def.id.startsWith('gen-') ? null : G.def.id), preset: G.def.preset || null, seed: G.def.seed ?? null, mode: G.mode,
     trayCapacity: sim.boxes.length - st.continuesUsed, shelfCapacity: sim.shelfCapacity, result, reason, timeSec: Math.round(G.playTime * 10) / 10,
-    dispatches: st.dispatches, zeroPlaceDispatches: st.zeroPlaceDispatches, maxBoxesUsed: st.maxBoxesUsed, graceSaves: st.graceSaves,
+    dispatches: st.dispatches, zeroPlaceDispatches: st.zeroPlaceDispatches, maxBoxesUsed: st.maxBoxesUsed, graceSaves: st.graceSaves, autoLoops: st.autoLoops,
     continuesUsed: st.continuesUsed, deniedTaps: st.deniedTaps + G.extraDenied };
   G.telemetry.push(rec); console.log('[shelf-control telemetry]', JSON.stringify(rec));
   if (result === 'won' && !G.def.id.startsWith('gen-')) {
@@ -1963,6 +2020,7 @@ const UI = (() => {
       const th = artThumb(G.def.art, true, 160, 150); th.className = 'card-pic'; box.appendChild(th);
       box.appendChild(el('p', null, `Time ${fmtTime(rec.timeSec)} · ${rec.dispatches} dispatches · ${rec.maxBoxesUsed} boxes at most`));
       if (rec.graceSaves) box.appendChild(el('p', 'small', `${rec.graceSaves} last-second save${rec.graceSaves > 1 ? 's' : ''}!`));
+      if (rec.autoLoops) box.appendChild(el('p', 'small', `The last cat finished by itself: ${rec.autoLoops} extra lap${rec.autoLoops > 1 ? 's' : ''}.`));
       const row = el('div', 'row');
       const hasNext = G.levelIndex >= 0 && G.levelIndex + 1 < LEVELS.length;
       row.appendChild(button(hasNext ? 'Next' : 'Levels', 'good', () => (hasNext ? play(G.levelIndex + 1) : showSelect())));
@@ -1992,6 +2050,7 @@ const UI = (() => {
     box.appendChild(toggleRow('Sound', checkbox(settings.sound, v => { settings.sound = v; saveSettings(); if (v) Audio.init(); })));
     box.appendChild(toggleRow('Symbols (colour-blind)', checkbox(settings.symbols, v => { settings.symbols = v; saveSettings(); })));
     box.appendChild(toggleRow('Assist (ready cats bounce)', checkbox(settings.assist, v => { settings.assist = v; saveSettings(); })));
+    box.appendChild(toggleRow('Auto-finish (last cat laps itself)', checkbox(settings.autoFinish, v => { settings.autoFinish = v; saveSettings(); })));
     const sel = document.createElement('select');
     for (const [v, n] of [['auto', 'System'], ['on', 'Reduced'], ['off', 'Full']]) { const o = document.createElement('option'); o.value = v; o.textContent = n; if (settings.motion === v) o.selected = true; sel.appendChild(o); }
     sel.addEventListener('change', () => { settings.motion = sel.value; saveSettings(); });
@@ -2058,6 +2117,7 @@ const UI = (() => {
     const x = button('✕', null, () => toggleDebug(false)); x.setAttribute('aria-label', 'Close debug'); head.appendChild(x); debug.appendChild(head);
     dbgLive = el('div', 'live'); debug.appendChild(dbgLive);
     debug.appendChild(slider('walkSpeed', 'walkSpeed', 3, 7, 0.1));
+    debug.appendChild(slider('autoFinishSpeed', 'autoFinishSpeed', 1, 4, 0.1));
     debug.appendChild(slider('minDispatchGap', 'minDispatchGap', 0.1, 0.6, 0.02));
     debug.appendChild(slider('graceSeconds', 'graceSeconds', 1, 5, 0.1));
     debug.appendChild(slider('shelfCapacity', 'shelfCapacity', 1, 8, 1, v => { if (Game.sim) Game.sim.shelfCapacity = v; }));
