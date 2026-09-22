@@ -23,10 +23,19 @@ jobs:
         with:
           ref: main
           path: live
-      - name: Check out dev (test build)
+      - name: Does a dev branch exist yet?
         id: dev
+        # only a missing branch selects the fallback below; any other ls-remote failure (auth, network) stops the deploy
+        run: |
+          rc=0; git -C live ls-remote --exit-code --heads origin refs/heads/dev >/dev/null || rc=$?
+          case $rc in
+            0) echo "exists=true" >> "$GITHUB_OUTPUT" ;;
+            2) echo "exists=false" >> "$GITHUB_OUTPUT"; echo "no dev branch yet: /test/ will mirror main" ;;
+            *) echo "git ls-remote failed with exit code $rc"; exit "$rc" ;;
+          esac
+      - name: Check out dev (test build)
+        if: steps.dev.outputs.exists == 'true'
         uses: actions/checkout@v4
-        continue-on-error: true      # until the dev branch exists, /test/ mirrors main
         with:
           ref: dev
           path: test
@@ -38,9 +47,9 @@ jobs:
           # the only difference between the builds: this one line flips the channel, and the deploy fails if it is not found
           sed -i "s/^const BUILD = { channel: 'dev' };$/const BUILD = { channel: 'live' };/" site/index.html
           grep -q "^const BUILD = { channel: 'live' };$" site/index.html
-          if [ -f test/index.html ]; then cp test/index.html site/test/index.html; else cp live/index.html site/test/index.html; fi
+          if [ "${{ steps.dev.outputs.exists }}" = "true" ]; then cp test/index.html site/test/index.html; else cp live/index.html site/test/index.html; fi
           touch site/.nojekyll
-          echo "live: $(git -C live rev-parse --short HEAD)  test: $([ -d test/.git ] && git -C test rev-parse --short HEAD || echo 'main (no dev branch yet)')"
+          echo "live: $(git -C live rev-parse --short HEAD)  test: $([ "${{ steps.dev.outputs.exists }}" = "true" ] && git -C test rev-parse --short HEAD || echo 'main (no dev branch yet)')"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
