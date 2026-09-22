@@ -10,6 +10,19 @@ Open `index.html` in a browser. That's it: no build step, no assets, no dependen
 
 Keys on desktop: `D` toggles the debug overlay, `R` restarts, `Esc` closes dialogs.
 
+## Two builds: test and live
+
+`main` is the shipped build and `dev` is the test build. `.github/workflows/pages.yml` publishes both to GitHub Pages from one repository on every push to either branch:
+
+| branch | URL | developer tools |
+|---|---|---|
+| `main` | `https://<owner>.github.io/shelf-control/` | off |
+| `dev` | `https://<owner>.github.io/shelf-control/test/` | on, and the level select says *test build* |
+
+Shipping is a merge from `dev` into `main`. One-time setup: in the repository settings, under *Pages*, set *Source* to *GitHub Actions*; until a `dev` branch exists, `/test/` mirrors `main`.
+
+The two builds are the same file. The source is the dev channel; the deploy rewrites the single line `const BUILD = { channel: 'dev' };` to `'live'` for the root URL and fails if that line is not found. Developer tools are the debug overlay (settings → 🐞 Debug, or `D`), the seed field in the generated chooser, and the *test build* label. `?debug=1` turns them on for any URL and `?debug=0` turns them off, which is how to preview the live build from a local file.
+
 ## Test it
 
 ```
@@ -37,7 +50,7 @@ The headless suite needs only Node. The other two need Playwright: `npm install`
 
 **Phase 3 — generator.** Appendix A ported and cross-checked against the verbatim Python: identical results on the same random stream (720/720 generate+replay cases, 1,200/1,200 playouts, 72/72 select pipelines) and matching distributions under different RNGs. 100 generated levels per preset pass `replay()` and win in the sim along their reference line. Selection is two-stage (64 candidates rated with 100 playouts, the six closest to the target re-rated with 200 more, winner picked on the combined estimate) and lands within ±0.10 of the preset target wherever Appendix B says the art can reach it; elsewhere the tile shows the achieved rating. Same seed → identical lanes. Generation peaks at about 320 ms on this box (best of two runs per art/preset).
 
-**Phase 4 — polish.** Tutorial tips (three on level 1, one line on level 2), settings (sound, symbols, assist, motion, reset), symbols mode, level-select thumbnails, debug overlay with live stats and sliders, telemetry records with *Copy stats* and a textarea fallback, "+1 box" once per attempt, reduced motion.
+**Phase 4 — polish.** Tutorial tips (four on level 1, one line on level 2), settings (sound, symbols, assist, motion, reset), symbols mode, level-select thumbnails, debug overlay with live stats and sliders, telemetry records with *Copy stats* and a textarea fallback, "+1 box" once per attempt, reduced motion.
 
 **Phase 5 — yoink A/B.** `CONFIG.mode = 'yoink'`: the board starts full, cats pluck the topmost matching block per column, blocks pop upward into the sack, the badge is remaining sack space. Same sim with reversed columns; lanes come from the generator with `reverse: true`. Selectable from the generated chooser and the debug overlay; telemetry records `mode`.
 
@@ -49,5 +62,7 @@ The headless suite needs only Node. The other two need Playwright: `npm install`
 - **Hard preset.** *Hard* is a ceiling (≤ 0.05) that is also meant to force lookahead, so a candidate the greedy player loses and that sits within the ±0.10 acceptance band outranks one the greedy player solves; inside the ceiling the tie-break is greedy-loses, then the lower rate. Hard starts from 48 candidates and, while the winner is still greedy-solvable, tries up to three more batches of 32 (hard levels are cheap to rate, so this stays under 400 ms). Some arts cannot get there at all (Heart, Chick, Mushroom in the plan's own backtest), and the chooser then says "no lookahead-forcing level found in N candidates, closest shown" rather than pretending. The reference tray limit is clamped to the tray capacity in play, so a 3-box experiment generates 3-box-solvable levels.
 - **Select-and-rate.** The plan's single-pass "best of 80 by 100 playouts" reports a winner's-curse estimate (the best of 80 noisy numbers is biased toward the target). Selection here is two-stage and the shown rating is the 300-playout combined estimate the winner was chosen on. Candidates are 64 rather than 80 to keep generation under 400 ms, which is the plan's own remedy (cut candidates before playouts).
 - **Dialogs pause play.** Opening settings mid-parade freezes the simulation (cats, timers, the grace countdown) until it closes; the plan does not say, and letting a 2.5 s countdown expire behind a panel the player cannot tap through would be a cheap death.
+- **Ready cats.** A boxed cat that can place again hops about once a second and its box glows softly, and level 1 points at the first one with a hand. The first playtest (two children, two adults) did not discover that boxed cats are tappable with the earlier 3 px shimmer.
+- **Audio unlock.** The audio context is resumed on pointerup, touchend and click as well as pointerdown, because iOS does not count a touch pointerdown as a user activation; before this, sound on iPhones only started after a DOM button (settings) had been clicked. Dialog buttons, the canvas and key presses all unlock it now, and it is re-resumed when the tab becomes visible again.
 - **Telemetry.** Records carry `art`, `preset`, `seed`, `mode`, `trayCapacity` and `shelfCapacity` in addition to the plan's fields, and generated-level ids include the art, so experiments on different arts with the same seed stay distinguishable.
 - **Not built:** the optional audio bed (plan §10 says off by default if it costs time; only the full-tray heartbeat exists) and everything in §14.
