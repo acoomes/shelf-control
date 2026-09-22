@@ -1538,7 +1538,7 @@ function update(dt) {
       } else if (p.seg === 'slide') { a.legPhase = null; a.tilt = clamp((p.ang || 0) * 0.45, 0, 0.75); a.squashY = lerp(a.squashY, 1.06, 0.2); }
       else { a.legPhase = (a.walkT += dt * 1.5 * mul) % 1; a.tilt = -0.15; }
       // a fast lap with blocks still to drop turns round at the shelf's end; the final lap slides out to the flap as usual
-      const endS = a.fast && sim.cats[a.id].count > 0 ? L.climbLen + L.walkLen : L.pathLen;
+      const endS = a.fast && settings.autoFinish && sim.cats[a.id].count > 0 ? L.climbLen + L.walkLen : L.pathLen;   // setting off mid-lap: slide as usual
       if (a.pathS >= endS - 0.01) endOfPass(a);
     } else if (a.state === 'wait') {
       a.t += dt;
@@ -2050,7 +2050,10 @@ const UI = (() => {
     box.appendChild(toggleRow('Sound', checkbox(settings.sound, v => { settings.sound = v; saveSettings(); if (v) Audio.init(); })));
     box.appendChild(toggleRow('Symbols (colour-blind)', checkbox(settings.symbols, v => { settings.symbols = v; saveSettings(); })));
     box.appendChild(toggleRow('Assist (ready cats bounce)', checkbox(settings.assist, v => { settings.assist = v; saveSettings(); })));
-    box.appendChild(toggleRow('Auto-finish (last cat laps itself)', checkbox(settings.autoFinish, v => { settings.autoFinish = v; saveSettings(); })));
+    box.appendChild(toggleRow('Auto-finish (last cat laps itself)', checkbox(settings.autoFinish, v => {
+      settings.autoFinish = v; saveSettings();
+      if (!v) for (const a of Game.actors) a.fast = false;   // a cat mid-lap drops back to walking pace and takes the slide
+    })));
     const sel = document.createElement('select');
     for (const [v, n] of [['auto', 'System'], ['on', 'Reduced'], ['off', 'Full']]) { const o = document.createElement('option'); o.value = v; o.textContent = n; if (settings.motion === v) o.selected = true; sel.appendChild(o); }
     sel.addEventListener('change', () => { settings.motion = sel.value; saveSettings(); });

@@ -387,8 +387,23 @@ const scenarios = {
     ok(s.status === 'playing' && s.boxes[0] !== null, 'a boxed last cat is not dispatched for the player');
     await api.tapBox(0); await api.settle(); await api.run(1800); s = await api.snap();
     ok(s.status === 'won' && s.stats.autoLoops === 0 && s.stats.maxBoxesUsed === 1, 'its single remaining pass needs no auto-finish');
-    // the setting turns it off
+    // turning the setting off mid-lap (settings dialog, which pauses play): the cat drops to walking pace, takes the slide and rests in a box
+    await api.start(FIX.autoFin);
+    await api.tapLane(0); await api.settle(); await api.tapLane(0); await api.run(400);
+    ok(await api.page.evaluate(() => SC.Game.flight[0].fast === true), 'last cat is lapping fast');
+    await api.page.evaluate(() => document.getElementById('btn-settings').click()); await api.run(50);
+    await api.clickSel('#panel input[type=checkbox]', 3); await api.clickSel('#panel .btn:has-text("Done")'); await api.run(50);
+    ok(await api.page.evaluate(() => SC.settings.autoFinish === false && SC.Game.flight[0].fast === false), 'the checkbox clears the fast flag on the lapping cat');
+    let sawSlide = false; for (let t = 0; t < 20000; t += 100) { await api.run(100); const f = await api.page.evaluate(() => SC.Game.flight[0] ? SC.Game.flight[0].seg : null); if (f === 'slide') sawSlide = true; s = await api.snap(); if (s.inFlight.length === 0) break; }
+    ok(sawSlide && s.boxes[0] !== null && s.stats.autoLoops === 0, 'it took the slide down and rested in a box instead of turning round');
+    // the same with the field flipped directly (no handler): the turn-round point itself is gated on the setting
+    await api.page.evaluate(() => { SC.settings.autoFinish = true; });
+    await api.start(FIX.autoFin);
+    await api.tapLane(0); await api.settle(); await api.tapLane(0); await api.run(400);
     await api.page.evaluate(() => { SC.settings.autoFinish = false; });
+    sawSlide = false; for (let t = 0; t < 20000; t += 100) { await api.run(100); const f = await api.page.evaluate(() => SC.Game.flight[0] ? SC.Game.flight[0].seg : null); if (f === 'slide') sawSlide = true; s = await api.snap(); if (s.inFlight.length === 0) break; }
+    ok(sawSlide && s.boxes[0] !== null && s.stats.autoLoops === 0, 'a still-fast cat with the setting off also takes the slide to a box');
+    // the setting turns it off
     await api.start(FIX.autoFin);
     await api.tapLane(0); await api.settle(); await api.tapLane(0); await api.settle(); s = await api.snap();
     ok(s.status === 'playing' && s.boxes[0] !== null && s.stats.autoLoops === 0, 'with auto-finish off the last cat rests in a box');
