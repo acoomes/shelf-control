@@ -21,7 +21,7 @@ Keys on desktop: `D` toggles the debug overlay, `R` restarts, `Esc` closes dialo
 
 Shipping is a merge from `dev` into `main`. One-time setup: in the repository settings, under *Pages*, set *Source* to *GitHub Actions*; until a `dev` branch exists, `/test/` mirrors `main`.
 
-The two builds are the same file. The source is the dev channel; the deploy rewrites the single line `const BUILD = { channel: 'dev' };` to `'live'` for the root URL and fails if that line is not found. Developer tools are the debug overlay (settings → 🐞 Debug, or `D`), the seed field in the generated chooser, and the *test build* label. `?debug=1` turns them on for any URL and `?debug=0` turns them off, which is how to preview the live build from a local file.
+The two builds are the same file. The source is the dev channel; the deploy rewrites the single line `const BUILD = { channel: 'dev' };` to `'live'` for the root URL and fails if that line is not found. Developer tools are the debug overlay (settings → 🐞 Debug, or `D`), the seed field in the generated chooser, and the *test build* label; without the seed field every *Generate* draws a fresh seed. `?debug=1` turns all of them on for any URL and `?debug=0` turns them off, which is how to preview the live build from a local file.
 
 ## Test it
 

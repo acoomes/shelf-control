@@ -313,7 +313,8 @@ const scenarios = {
   },
   async liveBuild(api) {
     // ?debug=0 previews the live channel: no Debug button, D does nothing, no seed field (the deploy flips BUILD.channel instead)
-    const dev = await api.page.evaluate(() => SC.devTools); ok(dev === false, 'dev tools off with ?debug=0');
+    const dev = await api.page.evaluate(() => ({ devTools: SC.devTools, foot: document.getElementById('foot-label').textContent }));
+    ok(dev.devTools === false && dev.foot === 'web prototype', `dev tools off with ?debug=0, label follows ("${dev.foot}")`);
     await api.clickSel('#btn-settings2'); await api.run(50);
     let txt = await api.text('#panel'); ok(/Reset progress/.test(txt) && !/Debug/.test(txt), 'settings has no Debug button');
     await api.clickSel('#panel .btn:has-text("Done")'); await api.run(50);
@@ -321,7 +322,14 @@ const scenarios = {
     const hidden = await api.page.evaluate(() => document.getElementById('debug').classList.contains('hidden')); ok(hidden, 'D key does not open the overlay');
     await api.page.evaluate(() => SC.UI.showGen()); await api.run(50);
     txt = await api.text('#panel'); ok(/Preset/.test(txt) && !/Seed/.test(txt), 'generated chooser hides the seed field');
-    await api.page.evaluate(() => SC.UI.closeModal());
+    // with the field hidden, each Generate must draw a fresh seed instead of replaying the cached spec
+    await api.clickSel('#panel .btn:has-text("Generate & play")'); await api.run(1200);
+    const id1 = await api.page.evaluate(() => SC.Game.def && SC.Game.def.id);
+    await api.page.evaluate(() => SC.UI.showSelect()); await api.run(50);
+    await api.page.evaluate(() => SC.UI.showGen()); await api.run(50);
+    await api.clickSel('#panel .btn:has-text("Generate & play")'); await api.run(1200);
+    const id2 = await api.page.evaluate(() => SC.Game.def && SC.Game.def.id);
+    ok(id1 && id2 && id1.startsWith('gen-') && id1 !== id2, `each Generate on the live build gets a fresh seed (${id1} → ${id2})`);
   },
   async boxReady(api) {
     // a boxed cat that can go again hops and its box glows; level 1's tutorial points at the first one at the moment it becomes tappable
