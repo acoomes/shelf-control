@@ -53,7 +53,9 @@ button.link{border:0;background:none;font:inherit;color:inherit;text-decoration:
 #debug input[type=range]{width:100%;margin:0}
 #debug label{display:block;margin-top:4px}
 #debug textarea{width:100%;height:90px;font-size:10px;margin-top:6px}
-#debug .btn{padding:4px 8px;font-size:12px;margin:3px 2px}
+#debug .btn{padding:6px 10px;font-size:12px;margin:3px 2px;background:rgba(255,255,255,.16);color:#fff;box-shadow:none}
+#debug .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;color:#FFD84D;font-weight:700}
+#debug .head .btn{padding:4px 12px;font-size:14px;margin:0}
 #debug select{font-size:12px}
 #debug .live{margin-bottom:6px;color:#FFD84D}
 #debug .tele{margin-top:6px;color:#9B7BFF}
@@ -75,7 +77,7 @@ button.link{border:0;background:none;font:inherit;color:inherit;text-decoration:
     <h1>Shelf Control</h1>
     <p class="sub">Tap a cat. Build the picture. Don’t run out of boxes.</p>
     <div id="tiles"></div>
-    <p class="foot">web prototype · <button id="btn-settings2" class="link" type="button">settings</button></p>
+    <p class="foot"><span id="foot-label">web prototype</span> · <button id="btn-settings2" class="link" type="button">settings</button></p>
   </div>
   <div id="modal" class="modal hidden"><div class="panel" id="panel"></div></div>
   <div id="debug" class="hidden"></div>
@@ -784,6 +786,10 @@ const T = { wallTop:'#FFE3EC', wallBottom:'#E4D7FF', well:'#2A2140', frame:'#4A3
             wood:'#B07A4E', woodEdge:'#8E5F3A', woodLight:'#C99368', rope:'#E8C79A', card:'#D9A66B', cardDark:'#B9854F',
             cardLight:'#EBC08A', ink:'#33284F', danger:'#FF5A6E', white:'#FFFFFF', pink:'#FF9CCB' };
 const FONT = 'Fredoka, ui-rounded, "Nunito", system-ui, sans-serif';
+/** Build channel. The live deploy (.github/workflows/pages.yml) rewrites this one line to 'live'; the file is otherwise identical.
+ *  Developer tools (debug overlay, D key, seed field) show on the dev channel, or anywhere with ?debug=1; ?debug=0 hides them. */
+const BUILD = { channel: 'dev' };
+const devTools = (() => { try { const q = new URLSearchParams(location.search).get('debug'); if (q === '1') return true; if (q === '0') return false; } catch (e) { /* no location */ } return BUILD.channel !== 'live'; })();
 
 // ------------------------------ utils ------------------------------
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -838,7 +844,7 @@ const Audio = (() => {
   const voices = [];                                   // { g, end } — polyphony 12, steal the oldest
   const PENTA = [0, 2, 4, 7, 9];                       // C major pentatonic
   function init() {
-    if (ctx) { if (ctx.state === 'suspended') ctx.resume().catch(() => {}); return; }
+    if (ctx) { wake(); return; }
     const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
     try {
       ctx = new AC();
@@ -846,9 +852,11 @@ const Audio = (() => {
       master = ctx.createGain(); master.gain.value = 0.5; master.connect(comp); comp.connect(ctx.destination);
       noiseBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.12), ctx.sampleRate);
       const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      wake();
     } catch (e) { ctx = null; }
   }
+  /** Resume an existing context ('suspended', or iOS's 'interrupted' after a call or a tab switch). Only works inside a user activation on mobile. */
+  function wake() { if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); }
   const on = () => !!ctx && settings.sound && ctx.state === 'running';
   function voice(dur) {
     const now = ctx.currentTime;
@@ -921,7 +929,7 @@ const Audio = (() => {
     if (!on()) return; const t = ctx.currentTime;
     const g = voice(0.3); env(g, t, 0.22, 0.005, 0.16); const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(70, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.16); o.connect(g); o.start(t); o.stop(t + 0.2);
   }
-  return { init, on, pluck, pop, tick, thup, deny, gliss, arpeggio, relief, fanfare, fail, heartbeat, ladderFreq };
+  return { init, wake, on, pluck, pop, tick, thup, deny, gliss, arpeggio, relief, fanfare, fail, heartbeat, ladderFreq };
 })();
 
 // ------------------------------ RENDER: layout (plan §8.1) ------------------------------
@@ -1520,8 +1528,15 @@ function update(dt) {
       // eyes track the most recently dispatched cat
       const tgt = G.lastDispatched && G.lastDispatched !== a && G.lastDispatched.state !== 'gone' ? G.lastDispatched : null;
       a.look = tgt ? { dx: (tgt.x - a.x) / 60, dy: (tgt.y - a.y) / 120 } : { dx: 0, dy: 0 };
-      if (graceActive && canPlace > 0) { a.bounce = reducedMotion() ? 4 : Math.abs(Math.sin(G.time * 19)) * 9; a.glow = 1; }
-      else if (settings.assist && canPlace > 0 && G.state === 'playing') { a.bounce = Math.abs(Math.sin(G.time * 4.5 + a.id)) * 3; a.glow = 0; }
+      if (graceActive && canPlace > 0) { a.bounce = reducedMotion() ? 4 : Math.abs(Math.sin(G.time * 19)) * 9; a.glow = 1; a.glowFast = true; }
+      else if (settings.assist && canPlace > 0 && G.state === 'playing') {
+        // "I can go again": a clear hop about every 1.1 s and a soft green glow on the box. Playtest: a 3 px shimmer went unnoticed.
+        const ph = (G.time * 0.9 + a.id * 0.37) % 1;
+        a.bounce = reducedMotion() ? 0 : (ph < 0.32 ? Math.sin(ph / 0.32 * Math.PI) * 8 : 0);
+        a.glow = 0.3 + 0.12 * Math.sin(G.time * 3 + a.id); a.glowFast = false;
+        // the tutorial pointer waits until the blocks it was waiting for have visibly landed (placements are logical at dispatch)
+        if (!G.tut.boxReady && G.blocks.length === 0 && !G.flight.some(f => f.pending.length > 0)) { G.tut.boxReady = true; UI.tutorialEvent('boxReady', a); }
+      }
       else { a.bounce = 0; a.glow = 0; }
       if (a.cheer > 0) a.bounce = Math.abs(Math.sin(G.time * 12)) * 8 * a.cheer;
     } else if (a.state === 'exit') {
@@ -1692,7 +1707,7 @@ function drawTray(ctx) {
     const shiver = full && !rm && G.shiverT < 0.35 ? Math.sin(G.time * 70) * 0.03 : 0;
     const bulge = fx ? Math.sin(clamp(fx.t / 0.35, 0, 1) * Math.PI) * (fx.bulge ? 1 : -0.4) : 0;
     const droop = failing ? clamp(G.stateT / 0.5, 0, 1) * (i % 2 ? 1 : -1) : 0;
-    const glow = a && a.glow ? 0.6 + 0.4 * Math.sin(G.time * 18) : (nearly && !cat ? 0.5 : 0);
+    const glow = a && a.glow ? (a.glowFast ? 0.6 + 0.4 * Math.sin(G.time * 18) : a.glow) : (nearly && !cat ? 0.5 : 0);
     drawBox(ctx, { x: tr.x(i), y: tr.y, w: tr.w, h: tr.h, wobble, shiver, bulge, droop, glow, glowColor: a && a.glow ? PALETTE.G.hex : T.danger }, () => {
       // inside drawBox the origin is the box's top-left corner
       if (a && a.state === 'box') drawBoxedCatHead(ctx, { x: tr.w / 2, y: tr.h * 0.40, s: Math.min(1, tr.w / 58), color: a.color, look: a.look, blink: a.blink, earTwitch: a.earTwitch, bounce: a.bounce });
@@ -1823,10 +1838,13 @@ function setupInput() {
     e.preventDefault();
   }, { passive: false });
   c.addEventListener('contextmenu', (e) => e.preventDefault());
-  document.addEventListener('pointerdown', () => Audio.init(), { capture: true });
+  // Audio unlock. iOS (every browser there is WebKit) counts touchend, pointerup and click as user activation but not a touch
+  // pointerdown, so a canvas tap alone never resumed the context on iPhones; the settings button did, being a DOM click.
+  for (const ev of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown']) document.addEventListener(ev, () => Audio.init(), { capture: true, passive: true });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) Audio.wake(); });
   window.addEventListener('keydown', (e) => {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
-    if (e.key === 'd' || e.key === 'D') UI.toggleDebug();
+    if (e.key === 'd' || e.key === 'D') { if (devTools) UI.toggleDebug(); }
     else if (e.key === 'r' || e.key === 'R') { if (Game.sim) UI.restart(); }
     else if (e.key === 'Escape') { if (!Game.sim || Game.state === 'playing') UI.closeModal(); }
   });
@@ -1870,7 +1888,7 @@ const UI = (() => {
     const g = el('button', 'tile gen'); g.type = 'button';
     const dice = el('div', 'dice', '🎲'); g.appendChild(dice);
     g.appendChild(el('div', 'name', 'Generated'));
-    g.appendChild(el('div', 'meta', 'any art · any preset · seeded'));
+    g.appendChild(el('div', 'meta', devTools ? 'any art · any preset · seeded' : 'any art · any preset'));
     g.addEventListener('click', () => { Audio.init(); showGen(); });
     tiles.appendChild(g);
   }
@@ -1913,7 +1931,7 @@ const UI = (() => {
       showTip('Tap a cat.', lx + 10, L.laneRows[0].y - 92, 0);
     }
   }
-  function tutorialEvent(kind) {
+  function tutorialEvent(kind, actor) {
     const G = Game; if (G.levelIndex !== 0) return;
     if (kind === 'dispatch' && tutState === 1) { clearTips(); tutState = 1.5; }
     else if (kind === 'boxed' && !G.tut.tip2) {
@@ -1921,6 +1939,10 @@ const UI = (() => {
       if (G.tut.frontierPending) { const def = G.def; tipTimers.push(setTimeout(() => { if (Game.def === def && !Game.tut.tip3) showFrontierTip(); }, 5300)); }
     }
     else if (kind === 'frontier' && !G.tut.tip3) { if (G.tut.tip2) showFrontierTip(); else G.tut.frontierPending = true; }
+    else if (kind === 'boxReady' && actor && !G.tut.tip4) {   // the first boxed cat that can go again: point at it, at the moment it matters
+      G.tut.tip4 = true; const b = boxAnchor(actor.slot);
+      showTip('👆', b.x, b.tr.y + b.tr.h + 26, 5, 'hand'); showTip('This cat can go again. Tap it!', b.x + 165, b.tr.y + b.tr.h + 26, 5);   // beside the hand, under the boxes: the frame above is busy
+    }
   }
   // ---- modal ----
   function openModal(node) { panel.innerHTML = ''; panel.appendChild(node); modal.classList.remove('hidden'); }
@@ -1975,7 +1997,7 @@ const UI = (() => {
     sel.addEventListener('change', () => { settings.motion = sel.value; saveSettings(); });
     box.appendChild(toggleRow('Motion', sel));
     const row = el('div', 'row');
-    row.appendChild(button('🐞 Debug', 'secondary', () => { closeModal(); toggleDebug(true); }));
+    if (devTools) row.appendChild(button('🐞 Debug', 'secondary', () => { closeModal(); toggleDebug(true); }));
     row.appendChild(button('Reset progress', 'secondary', () => { progress.done = {}; settings.seenTips = {}; Store.clear(); saveSettings(); saveProgress(); Game.telemetry = []; closeModal(); if (!Game.sim) buildTiles(); }));
     row.appendChild(button('Done', null, closeModal));
     box.appendChild(row);
@@ -1993,17 +2015,19 @@ const UI = (() => {
     const seedIn = document.createElement('input'); seedIn.type = 'number'; seedIn.value = String(spec.seed); seedIn.style.width = '110px';
     const modeSel = document.createElement('select');
     for (const m of ['build', 'yoink']) { const o = document.createElement('option'); o.value = m; o.textContent = m; if ((spec.mode || CONFIG.mode) === m) o.selected = true; modeSel.appendChild(o); }
-    box.appendChild(toggleRow('Art', artSel)); box.appendChild(toggleRow('Preset', preSel)); box.appendChild(toggleRow('Seed', seedIn)); box.appendChild(toggleRow('Mode', modeSel));
+    box.appendChild(toggleRow('Art', artSel)); box.appendChild(toggleRow('Preset', preSel)); if (devTools) box.appendChild(toggleRow('Seed', seedIn)); box.appendChild(toggleRow('Mode', modeSel));
     const info = el('p', 'small', 'Generates 80 candidates, rates each with 100 random playouts, keeps the one closest to the preset target.'); box.appendChild(info);
     const row = el('div', 'row');
-    row.appendChild(button('Random seed', 'secondary', () => { seedIn.value = String((Math.random() * 1e9) >>> 0); }));
+    if (devTools) row.appendChild(button('Random seed', 'secondary', () => { seedIn.value = String((Math.random() * 1e9) >>> 0); }));
     row.appendChild(button('Generate & play', 'good', () => {
       info.textContent = 'Generating…';
       const mySeq = ++genSeq;                         // a newer click or a close invalidates this request
       setTimeout(() => {
         if (mySeq !== genSeq) return;                 // the chooser was closed or Generate was clicked again meanwhile
         const parsedSeed = parseInt(seedIn.value, 10);
-        const art = LEVELS.find(l => l.id === artSel.value).art, seed = (Number.isNaN(parsedSeed) ? 1 : parsedSeed) >>> 0, mode = modeSel.value, preset = preSel.value;   // 0 is a valid seed
+        // dev: the typed seed (0 is valid). live: the field is hidden and would otherwise keep the last spec's seed, so every Generate draws a fresh one
+        const seed = devTools ? (Number.isNaN(parsedSeed) ? 1 : parsedSeed) >>> 0 : (Math.random() * 1e9) >>> 0; seedIn.value = String(seed);
+        const art = LEVELS.find(l => l.id === artSel.value).art, mode = modeSel.value, preset = preSel.value;
         const t0 = performance.now();
         let level;
         try { level = GEN.generateLevel({ art, artId: artSel.value, preset, seed, reverse: mode === 'yoink', trayCap: CONFIG.trayCapacity }); } catch (e) { info.textContent = 'Generation failed: ' + e.message; return; }
@@ -2030,6 +2054,8 @@ const UI = (() => {
   }
   function buildDebug() {
     debug.innerHTML = '';
+    const head = el('div', 'head'); head.appendChild(el('span', null, 'debug'));
+    const x = button('✕', null, () => toggleDebug(false)); x.setAttribute('aria-label', 'Close debug'); head.appendChild(x); debug.appendChild(head);
     dbgLive = el('div', 'live'); debug.appendChild(dbgLive);
     debug.appendChild(slider('walkSpeed', 'walkSpeed', 3, 7, 0.1));
     debug.appendChild(slider('minDispatchGap', 'minDispatchGap', 0.1, 0.6, 0.02));
@@ -2148,7 +2174,8 @@ function boot() {
   view.lastFrame = performance.now();
   requestAnimationFrame(loop);
   window.__selftest = selftest;
-  window.SC = { Game, CONFIG, LEVELS, GEN, createSim, startLevel, UI, tap: enqueueTap, hitTest, settings, Audio, view, useContinue, telemetry: () => Game.telemetry };
+  if (devTools) $('#foot-label').textContent = 'test build';   // follows the override too, so ?debug=0 previews the live presentation
+  window.SC = { Game, CONFIG, LEVELS, GEN, createSim, startLevel, UI, tap: enqueueTap, hitTest, settings, Audio, view, useContinue, telemetry: () => Game.telemetry, BUILD, devTools };
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();

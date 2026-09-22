@@ -1,0 +1,65 @@
+# Publishes two builds of the game to GitHub Pages from one repository:
+#   main  ->  https://<owner>.github.io/<repo>/        the shipped ("live") build: developer tools off
+#   dev   ->  https://<owner>.github.io/<repo>/test/   the test build: debug overlay, seed field, "test build" label
+# Shipping is a merge from dev into main. One-time setup: Settings -> Pages -> Source: "GitHub Actions".
+name: Deploy to GitHub Pages
+on:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main (live build)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: live
+      - name: Does a dev branch exist yet?
+        id: dev
+        # only a missing branch selects the fallback below; any other ls-remote failure (auth, network) stops the deploy
+        run: |
+          rc=0; git -C live ls-remote --exit-code --heads origin refs/heads/dev >/dev/null || rc=$?
+          case $rc in
+            0) echo "exists=true" >> "$GITHUB_OUTPUT" ;;
+            2) echo "exists=false" >> "$GITHUB_OUTPUT"; echo "no dev branch yet: /test/ will mirror main" ;;
+            *) echo "git ls-remote failed with exit code $rc"; exit "$rc" ;;
+          esac
+      - name: Check out dev (test build)
+        if: steps.dev.outputs.exists == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          path: test
+      - name: Assemble the site
+        run: |
+          set -eu
+          mkdir -p site/test
+          cp live/index.html site/index.html
+          # the only difference between the builds: this one line flips the channel, and the deploy fails if it is not found
+          sed -i "s/^const BUILD = { channel: 'dev' };$/const BUILD = { channel: 'live' };/" site/index.html
+          grep -q "^const BUILD = { channel: 'live' };$" site/index.html
+          if [ "${{ steps.dev.outputs.exists }}" = "true" ]; then cp test/index.html site/test/index.html; else cp live/index.html site/test/index.html; fi
+          touch site/.nojekyll
+          echo "live: $(git -C live rev-parse --short HEAD)  test: $([ "${{ steps.dev.outputs.exists }}" = "true" ] && git -C test rev-parse --short HEAD || echo 'main (no dev branch yet)')"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

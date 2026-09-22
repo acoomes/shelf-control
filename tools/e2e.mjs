@@ -44,7 +44,7 @@ async function open(opts = {}) {
   page.on('console', m => { if (m.type() === 'error' && !/ERR_CERT|fonts\.g/.test(m.text())) errors.push(m.text()); });
   page.on('pageerror', e => errors.push(e.message));
   await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
-  await page.goto(PAGE_URL);
+  await page.goto(PAGE_URL + (opts.query || ''));
   await page.clock.pauseAt(new Date('2026-01-01T00:00:01Z'));   // frozen between calls: no real-time drift in the game clock
   await page.clock.runFor(300);
   // With the clock paused, Playwright's own rAF-polling waits (page.click / textContent on selectors) would hang, so
@@ -290,6 +290,68 @@ const scenarios = {
     await api.page.evaluate(() => { document.getElementById('c').style.filter = ''; SC.settings.symbols = false; });
     ok(true, 'symbols/grayscale screenshot taken (visual check)');
   },
+  async devTools(api) {
+    // the checked-in file is the dev channel: debug overlay from settings and the D key, a visible close control, seed field in the chooser
+    const dev = await api.page.evaluate(() => ({ channel: SC.BUILD.channel, devTools: SC.devTools, foot: document.getElementById('foot-label').textContent }));
+    ok(dev.channel === 'dev' && dev.devTools === true && dev.foot === 'test build', `source file is the dev channel with dev tools on (label "${dev.foot}")`);
+    await api.clickSel('#btn-settings2'); await api.run(50);
+    let txt = await api.text('#panel'); ok(/Debug/.test(txt), 'settings shows the Debug button on the dev channel');
+    await api.clickSel('#panel .btn:has-text("Debug")'); await api.run(50);
+    let d = await api.page.evaluate(() => { const dbg = document.getElementById('debug'); const btn = dbg.querySelector('.head .btn'); const cs = getComputedStyle(btn); return { hidden: dbg.classList.contains('hidden'), close: btn && btn.textContent, color: cs.color, bg: cs.backgroundColor, panelBg: getComputedStyle(dbg).backgroundColor }; });
+    ok(!d.hidden && d.close === '✕', 'debug overlay opens with a close control in its header');
+    ok(d.color === 'rgb(255, 255, 255)' && d.bg !== d.panelBg && !/, 0\)$/.test(d.bg), `debug buttons are legible on the dark panel (text ${d.color} on ${d.bg})`);
+    await api.shot('debug-overlay');
+    await api.clickSel('#debug .head .btn'); await api.run(50);
+    d = await api.page.evaluate(() => document.getElementById('debug').classList.contains('hidden')); ok(d, 'the ✕ closes the overlay');
+    await api.page.keyboard.press('d'); await api.run(50);
+    d = await api.page.evaluate(() => document.getElementById('debug').classList.contains('hidden')); ok(!d, 'D reopens it');
+    await api.page.keyboard.press('d'); await api.run(50);
+    d = await api.page.evaluate(() => document.getElementById('debug').classList.contains('hidden')); ok(d, 'D closes it again');
+    await api.page.evaluate(() => SC.UI.showGen()); await api.run(50);
+    txt = await api.text('#panel'); ok(/Seed/.test(txt) && /Random seed/.test(txt), 'generated chooser has the seed field and Random seed on the dev channel');
+    await api.page.evaluate(() => SC.UI.closeModal());
+  },
+  async liveBuild(api) {
+    // ?debug=0 previews the live channel: no Debug button, D does nothing, no seed field (the deploy flips BUILD.channel instead)
+    const dev = await api.page.evaluate(() => ({ devTools: SC.devTools, foot: document.getElementById('foot-label').textContent }));
+    ok(dev.devTools === false && dev.foot === 'web prototype', `dev tools off with ?debug=0, label follows ("${dev.foot}")`);
+    await api.clickSel('#btn-settings2'); await api.run(50);
+    let txt = await api.text('#panel'); ok(/Reset progress/.test(txt) && !/Debug/.test(txt), 'settings has no Debug button');
+    await api.clickSel('#panel .btn:has-text("Done")'); await api.run(50);
+    await api.page.keyboard.press('d'); await api.run(50);
+    const hidden = await api.page.evaluate(() => document.getElementById('debug').classList.contains('hidden')); ok(hidden, 'D key does not open the overlay');
+    await api.page.evaluate(() => SC.UI.showGen()); await api.run(50);
+    txt = await api.text('#panel'); ok(/Preset/.test(txt) && !/Seed/.test(txt), 'generated chooser hides the seed field');
+    // with the field hidden, each Generate must draw a fresh seed instead of replaying the cached spec
+    await api.clickSel('#panel .btn:has-text("Generate & play")'); await api.run(1200);
+    const id1 = await api.page.evaluate(() => SC.Game.def && SC.Game.def.id);
+    await api.page.evaluate(() => SC.UI.showSelect()); await api.run(50);
+    await api.page.evaluate(() => SC.UI.showGen()); await api.run(50);
+    await api.clickSel('#panel .btn:has-text("Generate & play")'); await api.run(1200);
+    const id2 = await api.page.evaluate(() => SC.Game.def && SC.Game.def.id);
+    ok(id1 && id2 && id1.startsWith('gen-') && id1 !== id2, `each Generate on the live build gets a fresh seed (${id1} → ${id2})`);
+  },
+  async boxReady(api) {
+    // a boxed cat that can go again hops and its box glows; level 1's tutorial points at the first one at the moment it becomes tappable
+    await api.start(FIX.dig);                                          // R over B: R1 is boxed first, B4 fills the bottom row, then R is the frontier
+    await api.page.evaluate(() => { SC.Game.levelIndex = 0; });         // tutorial tips are level-1 only
+    await api.tapLane(0); await api.settle();
+    let s = await api.snap(); ok(s.boxes.filter(b => b !== null).length === 1, 'R1 is boxed with a block left');
+    const before = await api.page.evaluate(() => { const a = SC.Game.actors[SC.Game.sim.boxes[0].id]; return { bounce: a.bounce, glow: a.glow, hands: document.querySelectorAll('.tip.hand').length }; });
+    ok(before.bounce === 0 && !before.glow && before.hands === 0, 'no cue while the boxed cat cannot place');
+    await api.tapLane(0);                                               // B4 fills the bottom row
+    let tut = null;                                                     // the pointer appears the moment the row has landed, so look then (the tips time out)
+    for (let t = 0; t < 12000 && !(tut && tut.ready); t += 100) { await api.run(100); tut = await api.page.evaluate(() => ({ ready: SC.Game.tut.boxReady, blocks: SC.Game.blocks.length, hands: document.querySelectorAll('.tip.hand').length, tips: [...document.querySelectorAll('.tip')].map(t => t.textContent) })); }
+    ok(tut.ready && tut.blocks === 0 && tut.hands === 1 && tut.tips.some(t => /can go again/.test(t)), `tutorial points at the ready cat once its row has landed (${tut.tips.join(' | ')})`);
+    await api.shot('box-ready');
+    await api.settle();
+    let peak = 0, glow = 0;
+    for (let i = 0; i < 80; i++) { await api.run(16); const v = await api.page.evaluate(() => { const a = SC.Game.actors[SC.Game.sim.boxes[0].id]; return { b: a.bounce, g: a.glow }; }); peak = Math.max(peak, v.b); glow = Math.max(glow, v.g); }
+    ok(peak > 6 && glow > 0.2, `ready boxed cat hops (peak ${peak.toFixed(1)} px) and its box glows (${glow.toFixed(2)})`);
+    await api.tapBox(0); await api.settle(); s = await api.snap();
+    ok(s.boxes[0] === null, 'tapping the boxed cat sends it again');
+    await api.tapLane(0); await api.settle(); await api.run(1800); s = await api.snap(); ok(s.status === 'won', `R3 finishes the picture (status ${s.status})`);
+  },
 };
 
 const wanted = process.argv.slice(2).filter(a => !a.startsWith('-'));
@@ -297,7 +359,7 @@ const names = wanted.length ? wanted : Object.keys(scenarios);
 for (const name of names) {
   if (!scenarios[name]) { console.log(`unknown scenario ${name}`); failures++; continue; }
   console.log(`\n== ${name} ==`);
-  const api = await open({ reducedMotion: name === 'reduced', dpr: name === 'allLevels' ? 1 : 2 });
+  const api = await open({ reducedMotion: name === 'reduced', dpr: name === 'allLevels' ? 1 : 2, query: name === 'liveBuild' ? '?debug=0' : '' });
   try { await scenarios[name](api); } catch (e) { ok(false, `${name} threw: ${e.stack || e}`); }
   const errs = api.errors;
   ok(errs.length === 0, errs.length ? `console errors: ${errs.join(' | ').slice(0, 300)}` : 'no console errors');
