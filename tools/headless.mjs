@@ -294,10 +294,12 @@ console.log('\n== daily (plan §2.2) ==');
 {
   const d1 = Date.UTC(2026, 8, 24, 5), d1b = Date.UTC(2026, 8, 24, 23, 59), d2 = Date.UTC(2026, 8, 25, 0, 0, 1);
   ok(DAILY.number(d1) === 1 && DAILY.number(d1b) === 1 && DAILY.number(d2) === 2 && DAILY.key(d1b) === '2026-09-24' && DAILY.key(d2) === '2026-09-25', 'day numbers and keys follow the UTC date (2026-09-24 is day 1)');
-  ok(DAILY.artFor(1) === 'heart' && DAILY.artFor(16) === 'house' && DAILY.artFor(17) === 'heart', 'the art rotates through the sixteen pictures');
+  ok(DAILY.artFor(1) === 'chick' && DAILY.artFor(15) === 'house' && DAILY.artFor(16) === 'chick' && ![...Array(40)].some((_, i) => DAILY.artFor(i + 1) === 'heart'), 'the art rotates through the fifteen pictures that are not the tutorial heart');
   const a = DAILY.def(d1), b = DAILY.def(d1b), c = DAILY.def(d2);
-  ok(a.id === 'daily-2026-09-24' && JSON.stringify(a.lanes) === JSON.stringify(b.lanes) && a.preset === 'medium' && a.daily.n === 1 && a.artId === 'heart', `the same UTC date generates the same level everywhere (${a.id}: ${a.lanes.length} lanes, rated ${fmt(a.achieved)})`);
-  ok(c.id === 'daily-2026-09-25' && c.artId === 'chick' && JSON.stringify(c.lanes) !== JSON.stringify(a.lanes), 'the next day is a different level with the next picture');
+  ok(a.id === 'daily-2026-09-24' && JSON.stringify(a.lanes) === JSON.stringify(b.lanes) && a.preset === 'medium' && a.daily.n === 1 && a.artId === 'chick', `the same UTC date generates the same level everywhere (${a.id}: ${a.lanes.length} lanes, rated ${fmt(a.achieved)}, ${a.ref.length} dispatches)`);
+  ok(c.id === 'daily-2026-09-25' && c.artId === 'mushroom' && JSON.stringify(c.lanes) !== JSON.stringify(a.lanes), 'the next day is a different level with the next picture');
+  { const off = []; for (let n = 1; n <= 30; n++) { const d = DAILY.def(DAILY.EPOCH + (n - 1) * 86400000).ref.length; if (d < 25 || d > 40) off.push(`#${n}:${d}`); }
+    ok(off.length === 0, `the first thirty dailies all sit in the 25–40 dispatch band${off.length ? ' (NOT: ' + off.join(', ') + ')' : ''}`); }
   { const sim = createSim(a); const idOf = {}; let bad = false;
     for (const k of a.ref) { let cat; if (k in idOf) cat = sim.catById(idOf[k]); else { const [li] = a.where[k]; cat = sim.lanes[li][0]; idOf[k] = cat.id; } if (!sim.dispatch(cat.id).ok) { bad = true; break; } sim.arrive(cat.id); }
     ok(!bad && sim.status === 'won', `day 1's reference line wins in the sim (${a.ref.length} dispatches)`); }

@@ -1090,20 +1090,31 @@ function createSim(level, opts = {}) {
 }
 
 // ============================== DAILY ==============================
-// One generated level per UTC date, the same on every device (plan §2.2): the art rotates through the ARTS table, the
-// preset is medium, the seed is the date. Day 1 is 2026-09-24. Pure, so the headless suite can check determinism; the
-// share text and the streak arithmetic live here for the same reason.
+// One generated level per UTC date, the same on every device (plan §2.2): the art rotates through the ARTS table (the
+// tutorial heart sits out: 72 blocks and three colours are a warm-up at any preset), the preset is medium, the seed is
+// the date, and the first of a few seeds whose reference line sits in the plan's 25–40 dispatch band is the one used.
+// Day 1 is 2026-09-24. Pure, so the headless suite can check determinism; the share text and the streak arithmetic
+// live here for the same reason.
 const DAILY = (() => {
   const EPOCH = Date.UTC(2026, 8, 24), DAY = 86400000;
-  const ART_ORDER = Object.keys(ARTS);
+  const ART_ORDER = Object.keys(ARTS).filter(id => id !== 'heart');
+  const BAND = [25, 40], TRIES = 4;
   const dayStart = (ms) => Math.floor(ms / DAY) * DAY;
   const number = (ms) => Math.floor((dayStart(ms) - EPOCH) / DAY) + 1;
   const key = (ms) => new Date(dayStart(ms)).toISOString().slice(0, 10);
   const artFor = (n) => ART_ORDER[(((n - 1) % ART_ORDER.length) + ART_ORDER.length) % ART_ORDER.length];
   function def(ms) {
     const n = number(ms), k = key(ms), artId = artFor(n);
-    // the reference tray limit is the plan's default, never the debug slider's, or two devices would disagree
-    const level = GEN.generateLevel({ art: ARTS[artId].art, artId, preset: 'medium', seed: hashSeed('daily:' + k), trayCap: 5 });
+    // the reference tray limit is the plan's default, never the debug slider's, or two devices would disagree; the seed
+    // sequence is fixed, so every device tries the same candidates in the same order and keeps the same one
+    let level = null, best = null;
+    for (let i = 0; i < TRIES; i++) {
+      const cand = GEN.generateLevel({ art: ARTS[artId].art, artId, preset: 'medium', seed: hashSeed(`daily:${k}:${i}`), trayCap: 5 });
+      const d = cand.ref.length, off = d < BAND[0] ? BAND[0] - d : d > BAND[1] ? d - BAND[1] : 0;
+      if (off === 0) { level = cand; break; }
+      if (!best || off < best.off) best = { cand, off };
+    }
+    level = level || best.cand;
     level.id = `daily-${k}`; level.name = ARTS[artId].name; level.daily = { n, key: k, artId };
     return level;
   }
