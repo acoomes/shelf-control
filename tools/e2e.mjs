@@ -407,7 +407,7 @@ const scenarios = {
     await api.clickSel('#daily .tile'); await api.run(100);
     const again = await api.page.evaluate(() => JSON.parse(localStorage.getItem('sc.daily')));
     ok(again.attempts[info.key] === 2 && again.streak === 1 && again.wins[info.key].attempts === 1, 'a replay counts a second attempt; the streak and the stored result stay');
-    ok((await api.page.evaluate(() => Object.keys(SC.daily.wins).some(k => k in JSON.parse(localStorage.getItem('sc.progress')).done))) === false, 'the daily never writes into the chapter progress');
+    ok((await api.page.evaluate(() => { const p = JSON.parse(localStorage.getItem('sc.progress') || '{"done":{}}'); return Object.keys(p.done).length === 0; })), 'the daily never writes into the chapter progress');
   },
   async pwa(api) {
     // installable (plan §2.4): manifest and icons in place, no worker from a file:// open, a home-screen hint after the second session, standalone launches counted

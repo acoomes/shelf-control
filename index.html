@@ -2341,7 +2341,7 @@ const UI = (() => {
     txt.appendChild(el('div', 'name', `Daily #${n}`));
     let when; try { when = new Date(now).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }); } catch (e) { when = k; }
     txt.appendChild(el('div', 'meta', `${when} · ${ARTS[artId].name} · same for everyone`));
-    const fire = streak > 0 ? ` · 🔥 ${streak}-day streak` : '';
+    const fire = streak > 1 ? ` · 🔥 ${streak}-day streak` : '';   // a streak of one is just today's win
     txt.appendChild(el('div', 'meta', won
       ? `Done in ${fmtTime(won.timeSec)} · ${won.boxes} box${won.boxes === 1 ? '' : 'es'}${won.attempts > 1 ? ` · try ${won.attempts}` : ''}${fire}`
       : (tries ? `${tries} ${tries === 1 ? 'try' : 'tries'} so far` : 'Not played yet') + fire));
