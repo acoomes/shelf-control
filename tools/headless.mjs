@@ -16,7 +16,9 @@ if (!m) { console.error('core script not found'); process.exit(2); }
 const sandbox = { module: { exports: {} }, console };
 vm.runInNewContext(m[1], sandbox, { filename: 'core.js' });
 const C = sandbox.module.exports;
-const { LEVELS, BACKTEST, GEN, createSim, makeRng, loadLevel, validateBakedLevels } = C;
+const { ARTS, LEVELS, BACKTEST, GEN, createSim, makeRng, loadLevel, validateBakedLevels } = C;
+const PINNED = LEVELS.filter(l => l.pinned), CURATED = LEVELS.filter(l => !l.pinned);   // six Appendix B references + the curated rest
+const ART_LIST = Object.entries(ARTS).map(([id, a]) => ({ id, art: a.art }));
 
 const quick = process.argv.includes('--quick');
 const timing = process.argv.includes('--timing');   // wall-clock generation budget is host-dependent: assert only when asked
@@ -26,7 +28,7 @@ const ok = (cond, msg) => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${msg}`); if
 const fmt = (x) => (typeof x === 'number' ? x.toFixed(3) : String(x));
 
 console.log('== loader ==');
-try { validateBakedLevels(); ok(true, 'all six baked levels pass loader assertions'); } catch (e) { ok(false, `loader: ${e.message}`); }
+try { validateBakedLevels(); ok(true, `all ${LEVELS.length} baked levels pass loader assertions (${PINNED.length} pinned, ${CURATED.length} curated from ${ART_LIST.length} arts)`); } catch (e) { ok(false, `loader: ${e.message}`); }
 for (const bad of [
   { name: 'gap under a colour', level: { art: ['RR', '.R'], lanes: ['R3'] } },
   { name: 'ragged rows', level: { art: ['RRR', 'RR'], lanes: ['R5'] } },
@@ -49,13 +51,26 @@ function replayLineInSim(level, line, opts) {
   }
   return { sim };
 }
-console.log('\n== 13.1.1 exhaustive turn-based solve ==');
-for (const lv of LEVELS) {
+console.log('\n== 13.1.1 exhaustive turn-based solve (pinned) + reference-line replay (curated) ==');
+for (const lv of PINNED) {
   const { cols, lanes, cap } = GEN.lanesOf(lv);
   const t0 = Date.now();
   const r = GEN.solve(cols, lanes, cap, 20e6);
   ok(r.solvable && !r.aborted, `${lv.id}: solvable=${r.solvable} nodes=${r.nodes} line=${r.line ? r.line.length + ' moves' : '-'} (${Date.now() - t0} ms)`);
   if (r.line) { const rr = replayLineInSim(lv, r.line); ok(!rr.error && rr.sim.status === 'won', `${lv.id}: the solver's line wins in the real sim`); }
+}
+{
+  let bad = [];
+  for (const lv of CURATED) {
+    const sim = createSim(lv); let fail = null;
+    for (const id of lv.ref) { const r = sim.dispatch(id); if (!r.ok) { fail = `dispatch ${id} denied (${r.reason})`; break; } sim.arrive(id); }
+    if (!fail && sim.status !== 'won') fail = `status ${sim.status} after the line`;
+    if (!fail && lv.ref.length !== lv.rating.dispatches) fail = `ref has ${lv.ref.length} moves, rating says ${lv.rating.dispatches}`;
+    if (fail) bad.push(`${lv.id}: ${fail}`);
+  }
+  ok(bad.length === 0, `every curated level wins in the sim along its baked reference line (${CURATED.length} levels)${bad.length ? ': ' + bad.join('; ') : ''}`);
+  const band = CURATED.filter(l => l.rating.dispatches >= 25 && l.rating.dispatches <= 40).length;
+  ok(band === CURATED.length, `every curated level sits in the H4 band of 25–40 dispatches (${band}/${CURATED.length})`);
 }
 {
   // the solver must also say no when the answer is no, and must backtrack when lane-first ordering fails
@@ -72,7 +87,7 @@ for (const lv of LEVELS) {
 }
 
 console.log(`\n== 13.1.2 random playouts (${PLAYOUTS} per level) vs Appendix B ==`);
-for (const lv of LEVELS) {
+for (const lv of PINNED) {
   const { cols, lanes, cap } = GEN.lanesOf(lv);
   const rng = makeRng(C.hashSeed('playout:' + lv.id));
   const rate = GEN.randomWinRate(cols, lanes, cap, rng, PLAYOUTS);
@@ -80,6 +95,19 @@ for (const lv of LEVELS) {
   const ref = BACKTEST[lv.id];
   ok(Math.abs(rate - ref.randomWin) <= 0.05, `${lv.id}: random-win ${fmt(rate)} (appendix ${ref.randomWin})`);
   ok(greedy === ref.greedyWins, `${lv.id}: greedy wins=${greedy} (appendix ${ref.greedyWins})`);
+}
+{
+  const N = quick ? 100 : 300; let off = [], greedyOff = [];
+  for (const lv of CURATED) {
+    const { cols, lanes, cap } = GEN.lanesOf(lv);
+    const rate = GEN.randomWinRate(cols, lanes, cap, makeRng(C.hashSeed('rate:' + lv.id)), N);
+    if (Math.abs(rate - lv.rating.randomWin) > 0.10) off.push(`${lv.id} ${fmt(rate)} vs ${lv.rating.randomWin}`);
+    if (GEN.playout(cols, lanes, cap, makeRng(1), true) !== lv.rating.greedyWins) greedyOff.push(lv.id);
+  }
+  ok(off.length === 0, `baked ratings hold: ${N} fresh playouts per curated level within ±0.10 of the tile's number${off.length ? ' (off: ' + off.join(', ') + ')' : ''}`);
+  ok(greedyOff.length === 0, `baked greedy flags hold${greedyOff.length ? ' (off: ' + greedyOff.join(', ') + ')' : ''}`);
+  const bosses = CURATED.filter(l => l.curve && l.curve.boss);
+  ok(bosses.length > 0 && bosses.every(l => !l.rating.greedyWins), `every chapter boss needs lookahead (${bosses.map(l => l.id).join(', ')})`);
 }
 
 console.log('\n== 13.1.3 determinism ==');
@@ -111,7 +139,7 @@ console.log('\n== 13.1.3 determinism ==');
   const golden = {};
   for (const lv of LEVELS) { const sim = createSim(lv); const parts = []; for (let i = 0; i < 12; i++) { const lane = sim.lanes[i % sim.lanes.length]; if (!lane.length) continue; const id = lane[0].id; const r = sim.dispatch(id); parts.push(r.ok ? r.placements.map(p => `${p.col}${p.row}`).join('') : r.reason); if (r.ok) sim.arrive(id); } golden[lv.id] = C.hashSeed(parts.join('|')); }
   const GOLDEN = { heart: 3785182514, chick: 4117558065, mushroom: 1688537698, icecream: 1379069667, catface: 3638597410, rainbow: 3689267354 };
-  ok(LEVELS.every(lv => golden[lv.id] === GOLDEN[lv.id]), `placement golden hashes match (${JSON.stringify(golden)})`);
+  ok(Object.keys(GOLDEN).every(id => golden[id] === GOLDEN[id]), `placement golden hashes match for the reference levels (${JSON.stringify(Object.fromEntries(Object.keys(GOLDEN).map(id => [id, golden[id]])))})`);
 }
 
 console.log('\n== 13.1.4 invariant after every dispatch + sim vs evaluator agreement ==');
@@ -119,7 +147,8 @@ console.log('\n== 13.1.4 invariant after every dispatch + sim vs evaluator agree
   let invariantViolations = 0, disagreements = 0, games = 0, simWins = 0, evalWins = 0, dispatches = 0;
   for (const lv of LEVELS) {
     const { cols, lanes: L, cap } = GEN.lanesOf(lv);
-    for (let g = 0; g < 200; g++) {
+    const G_N = lv.pinned ? 200 : (quick ? 10 : 40);
+    for (let g = 0; g < G_N; g++) {
       games++;
       const rng = makeRng(C.hashSeed(`agree:${lv.id}:${g}`));
       const sim = createSim(lv);
@@ -163,7 +192,7 @@ console.log('\n== Phase 3 generator acceptance ==');
   for (const preset of presets) {
     let pass = 0, fails = 0;
     for (let i = 0; i < N; i++) {
-      const art = LEVELS[i % LEVELS.length].art;
+      const art = ART_LIST[i % ART_LIST.length].art;
       const rng = makeRng(C.hashSeed(`gen:${preset}:${i}`));
       const p = GEN.PRESETS[preset];
       const cols = C.columns(art);
@@ -196,14 +225,15 @@ console.log('\n== Phase 3 generator acceptance ==');
   // full mode uses the game's own defaults (what the 🎲 tile runs); quick mode shrinks the budget for a fast smoke run
   const budget = quick ? { candidates: 20, playouts: 40 } : {};
   let maxMs = 0;
-  for (const lv of LEVELS) {
+  for (const lv of ART_LIST) {
     for (const preset of Object.keys(GEN.PRESETS)) {
       // best of two runs: the plan's 400 ms is a cost target for the generator, not a GC-pause lottery
       let ms = Infinity, level = null;
       for (let r = 0; r < 2; r++) { const t0 = performance.now(); const lv2 = GEN.generateLevel({ art: lv.art, preset, seed: C.hashSeed(`sel:${lv.id}:${preset}`), ...budget }); ms = Math.min(ms, performance.now() - t0); level = level || lv2; }
       maxMs = Math.max(maxMs, ms);
       const p = GEN.PRESETS[preset];
-      const expected = reach[lv.id][preset];
+      const expected = reach[lv.id] ? reach[lv.id][preset] : null;
+      if (expected === null) { console.log(`INFO  ${lv.id.padEnd(10)} ${preset.padEnd(8)} achieved=${fmt(level.achieved)} target=${p.target}${p.targetIsCeiling ? '(ceiling)' : ''} greedyWins=${level.greedyWins} (${ms.toFixed(0)} ms; no Appendix B figure)`); continue; }
       const reachable = p.targetIsCeiling ? expected <= p.target + 0.02 : Math.abs(expected - p.target) <= 0.05; // Appendix B: '±0.10 wherever that art can reach it'
       const within = p.targetIsCeiling ? level.achieved <= p.target + 0.10 : Math.abs(level.achieved - p.target) <= 0.10;
       const nearAppendix = Math.abs(level.achieved - expected) <= 0.15;
