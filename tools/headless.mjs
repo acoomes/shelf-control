@@ -126,6 +126,9 @@ for (const lv of PINNED) {
   const isBoss = (l) => !!(l.curve && l.curve.boss);
   const bosses = LEVELS.filter(isBoss), others = LEVELS.filter(l => !isBoss(l));
   ok(bosses.length > 0 && bosses.every(l => !l.rating.greedyWins), `every chapter boss needs lookahead (${bosses.map(l => l.id).join(', ')})`);
+  // plan §2.1 shape: chapter 1 (onboarding) has no boss; chapters 2 to 5 each close with one, hard (ceiling 0.05) from chapter 3 on
+  { const wrong = LEVELS.map((l, i) => { const n = i + 1, want = n % 8 === 0 && n > 8; return isBoss(l) !== want ? `${n}:${l.id}${want ? ' not a boss' : ' is a boss'}` : (want && n > 16 && !(l.curve.target <= 0.05)) ? `${n}:${l.id} not hard` : null; }).filter(Boolean);
+    ok(LEVELS.length === 40 && wrong.length === 0, `bosses close chapters 2 to 5 and nothing else (16 lookahead; 24, 32 and 40 hard); chapter 1 has none${wrong.length ? ' (NOT: ' + wrong.join(', ') + ')' : ''}`); }
   ok(others.every(l => l.rating.greedyWins), `lookahead levels live only in boss slots: every other level is greedy-solvable${others.filter(l => !l.rating.greedyWins).length ? ' (NOT: ' + others.filter(l => !l.rating.greedyWins).map(l => l.id).join(', ') + ')' : ''}`);
   // the curve descends: outside the chapter bosses (and the pinned lookahead finale) no level is rated more than 0.10 above the previous one (plan §2.1)
   { let prev = null; const climbs = [];

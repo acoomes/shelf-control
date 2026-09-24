@@ -33,6 +33,8 @@ const MAX_USES = 3;                                      // an art appears at mo
 // The curve, one entry per level. A number is the random-win rate to aim for; `pin` keeps a hand-made level in that slot;
 // `boss` closes a chapter with a level the greedy player loses (target ≤ 0.05 uses the generator's hard-ceiling search).
 // Lookahead levels live only in boss slots: every other level must be one the greedy player solves (plan §2.1).
+// Chapter 1 is the onboarding chapter and has no boss; chapter 2 closes with the first lookahead level, chapters 3 to 5
+// with a hard one. That shape is checked below: changing it is a written decision that edits the plan first.
 const CURVE = [
   { pin: 'heart' }, 0.92, 0.88, 0.84, 0.80, 0.76, 0.72, { pin: 'chick' },
   0.66, 0.62, 0.58, { pin: 'mushroom' }, 0.48, 0.44, 0.40, { boss: 0.12 },
@@ -40,6 +42,13 @@ const CURVE = [
   0.18, 0.16, 0.15, { pin: 'catface' }, 0.12, 0.11, 0.10, { boss: 0.05 },
   0.10, 0.09, 0.08, 0.08, 0.07, 0.06, 0.06, { pin: 'rainbow', boss: 0.05 },
 ];
+
+CURVE.forEach((entry, i) => {
+  const n = i + 1, want = n % CHAPTER === 0 && n > CHAPTER, hard = want && n > 2 * CHAPTER;
+  const isBoss = typeof entry === 'object' && entry.boss !== undefined;
+  if (isBoss !== want) { console.error(`CURVE: level ${n} ${want ? 'must be' : 'may not be'} a boss (plan §2.1: bosses close chapters 2 to 5 and nothing else)`); process.exit(2); }
+  if (hard && entry.boss > 0.05) { console.error(`CURVE: level ${n} closes chapter ${n / CHAPTER} and must be a hard boss (≤ 0.05), not ${entry.boss}`); process.exit(2); }
+});
 
 /** generator parameters for a target rate: interpolates the plan's four presets */
 function presetFor(target, boss) {
