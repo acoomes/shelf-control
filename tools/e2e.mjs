@@ -34,6 +34,9 @@ const FIX = {
   graceSave: { id: 'fx-grace', name: 'Grace', art: ['GGGGGG', 'RRRRRR', 'BBBBBB'], lanes: ['R1 R1 R1 R1 R1 R1 B6 G6'] },
   stuck:     { id: 'fx-stuck', name: 'Stuck', art: ['RRRRRR', 'BBBBBB'], lanes: ['R1 R1 R1 R1 R1 R1 B6'] },
   dig:       { id: 'fx-dig',   name: 'Dig',   art: ['RRRR', 'BBBB'], lanes: ['R1 B4 R3'] },
+  autoFin:   { id: 'fx-auto',  name: 'Auto',  art: ['RRRR', 'RRRR', 'RRRR', 'BBBB'], lanes: ['B4 R12'] },       // one cat, three laps
+  autoLate:  { id: 'fx-auto2', name: 'Late',  art: ['RRRR', 'RRRR', 'GGGG'], lanes: ['R8', 'G4'] },             // becomes the last cat while in flight
+  autoNo:    { id: 'fx-auto3', name: 'NoAuto', art: ['RRRR', 'RRRR', 'RRRR', 'BBBB'], lanes: ['B4 R8 R4'] },     // never the last cat with blocks until its final lap
 };
 
 async function open(opts = {}) {
@@ -351,6 +354,62 @@ const scenarios = {
     await api.tapBox(0); await api.settle(); s = await api.snap();
     ok(s.boxes[0] === null, 'tapping the boxed cat sends it again');
     await api.tapLane(0); await api.settle(); await api.run(1800); s = await api.snap(); ok(s.status === 'won', `R3 finishes the picture (status ${s.status})`);
+  },
+  async autoFinish(api) {
+    // the last cat with blocks left laps the shelf by itself, fast, instead of resting in a box and waiting for the same tap again
+    await api.start(FIX.autoFin);
+    await api.tapLane(0); await api.settle();                                   // B4 fills the bottom row
+    const t0 = await api.page.evaluate(() => SC.Game.playTime);
+    await api.tapLane(0); await api.run(60);                                    // R12: the only cat left, 8 blocks after this pass
+    const fast = await api.page.evaluate(() => { const a = SC.Game.flight[0]; return a && a.fast; });
+    ok(fast === true, 'the last cat goes fast from the tap that settles the ending');
+    await api.run(320); await api.shot('auto-finish');
+    let seenBox = false;
+    let s = null; for (let t = 0; t < 20000; t += 100) { await api.run(100); s = await api.snap(); if (s.boxes.some(b => b !== null)) seenBox = true; if (s.inFlight.length === 0 && s.blocks === 0) break; }
+    await api.run(1800); s = await api.snap();
+    const t1 = await api.page.evaluate(() => SC.Game.playTime);
+    ok(s.status === 'won' && s.stats.dispatches === 2 && s.stats.autoLoops === 2, `won with one tap for the last cat: dispatches ${s.stats.dispatches}, auto laps ${s.stats.autoLoops}`);
+    ok(!seenBox && s.stats.maxBoxesUsed === 0, 'it never rested in a box');
+    ok(t1 - t0 < 6, `three laps took ${(t1 - t0).toFixed(1)} s of game time`);
+    const card = await api.text('#panel'); ok(/finished by itself: 2 extra laps/.test(card), 'the win card says so');
+    // becoming the last cat while already in flight: R8 places nothing (G is the frontier), G4 follows and empties, R8 loops at the slide's end
+    await api.start(FIX.autoLate);
+    await api.tapLane(0); await api.run(30); await api.tapLane(1); await api.run(400);   // the second tap is buffered behind minDispatchGap
+    const fast2 = await api.page.evaluate(() => SC.Game.flight.map(a => !!a.fast));
+    ok(fast2.length === 2 && !fast2[0] && !fast2[1], 'neither cat is fast while both carry or await blocks');
+    await api.settle(); await api.run(1800); s = await api.snap();
+    ok(s.status === 'won' && s.stats.autoLoops === 2 && s.stats.zeroPlaceDispatches === 1 && s.stats.maxBoxesUsed === 0, `R8 loops twice once G4 is done (auto laps ${s.stats.autoLoops}, boxes ${s.stats.maxBoxesUsed})`);
+    // not the last cat: rests in a box as before, and its final lap is a normal one
+    await api.start(FIX.autoNo);
+    await api.tapLane(0); await api.settle(); await api.tapLane(0); await api.settle(); s = await api.snap();
+    ok(s.status === 'playing' && s.boxes[0] !== null && s.stats.autoLoops === 0, 'R8 rests in a box while R4 still waits in the lane');
+    await api.tapLane(0); await api.settle(); s = await api.snap();
+    ok(s.status === 'playing' && s.boxes[0] !== null, 'a boxed last cat is not dispatched for the player');
+    await api.tapBox(0); await api.settle(); await api.run(1800); s = await api.snap();
+    ok(s.status === 'won' && s.stats.autoLoops === 0 && s.stats.maxBoxesUsed === 1, 'its single remaining pass needs no auto-finish');
+    // turning the setting off mid-lap (settings dialog, which pauses play): the cat drops to walking pace, takes the slide and rests in a box
+    await api.start(FIX.autoFin);
+    await api.tapLane(0); await api.settle(); await api.tapLane(0); await api.run(400);
+    ok(await api.page.evaluate(() => SC.Game.flight[0].fast === true), 'last cat is lapping fast');
+    await api.page.evaluate(() => document.getElementById('btn-settings').click()); await api.run(50);
+    await api.clickSel('#panel input[type=checkbox]', 3); await api.clickSel('#panel .btn:has-text("Done")'); await api.run(50);
+    ok(await api.page.evaluate(() => SC.settings.autoFinish === false && SC.Game.flight[0].fast === false), 'the checkbox clears the fast flag on the lapping cat');
+    let sawSlide = false; for (let t = 0; t < 20000; t += 100) { await api.run(100); const f = await api.page.evaluate(() => SC.Game.flight[0] ? SC.Game.flight[0].seg : null); if (f === 'slide') sawSlide = true; s = await api.snap(); if (s.inFlight.length === 0) break; }
+    ok(sawSlide && s.boxes[0] !== null && s.stats.autoLoops === 0, 'it took the slide down and rested in a box instead of turning round');
+    // the same with the field flipped directly (no handler): the turn-round point itself is gated on the setting
+    await api.page.evaluate(() => { SC.settings.autoFinish = true; });
+    await api.start(FIX.autoFin);
+    await api.tapLane(0); await api.settle(); await api.tapLane(0); await api.run(400);
+    await api.page.evaluate(() => { SC.settings.autoFinish = false; });
+    sawSlide = false; for (let t = 0; t < 20000; t += 100) { await api.run(100); const f = await api.page.evaluate(() => SC.Game.flight[0] ? SC.Game.flight[0].seg : null); if (f === 'slide') sawSlide = true; s = await api.snap(); if (s.inFlight.length === 0) break; }
+    ok(sawSlide && s.boxes[0] !== null && s.stats.autoLoops === 0, 'a still-fast cat with the setting off also takes the slide to a box');
+    // the setting turns it off
+    await api.start(FIX.autoFin);
+    await api.tapLane(0); await api.settle(); await api.tapLane(0); await api.settle(); s = await api.snap();
+    ok(s.status === 'playing' && s.boxes[0] !== null && s.stats.autoLoops === 0, 'with auto-finish off the last cat rests in a box');
+    await api.tapBox(0); await api.settle(); await api.tapBox(0); await api.settle(); await api.run(1800); s = await api.snap();
+    ok(s.status === 'won' && s.stats.dispatches === 4, 'and needs the two extra taps');
+    await api.page.evaluate(() => { SC.settings.autoFinish = true; });
   },
 };
 

@@ -2,6 +2,8 @@
 #   main  ->  https://<owner>.github.io/<repo>/        the shipped ("live") build: developer tools off
 #   dev   ->  https://<owner>.github.io/<repo>/test/   the test build: debug overlay, seed field, "test build" label
 # Shipping is a merge from dev into main. One-time setup: Settings -> Pages -> Source: "GitHub Actions".
+# The github-pages environment accepts deployments from main only, so a push to dev does not deploy by itself: its `relay`
+# job asks the main-branch copy of this workflow to run, and that run publishes both builds (it checks dev out by name).
 name: Deploy to GitHub Pages
 on:
   push:
@@ -11,11 +13,22 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: write        # relay: dispatch this workflow on main
 concurrency:
   group: pages
   cancel-in-progress: false
 jobs:
+  relay:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask the main-branch workflow to publish both builds
+        run: gh workflow run pages.yml --ref main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
   build:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Check out main (live build)
@@ -55,6 +68,7 @@ jobs:
         with:
           path: site
   deploy:
+    if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     environment:
