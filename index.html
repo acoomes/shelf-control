@@ -1115,7 +1115,9 @@ const DAILY = (() => {
       if (!best || off < best.off) best = { cand, off };
     }
     level = level || best.cand;
-    level.id = `daily-${k}`; level.name = ARTS[artId].name; level.daily = { n, key: k, artId };
+    level.id = `daily-${k}`; level.name = ARTS[artId].name;
+    // a stored result belongs to the puzzle it was earned on: the layout hash is the identity it is checked against
+    level.daily = { n, key: k, artId, layout: layoutHash(level.art, level.lanes) };
     return level;
   }
   // the finished picture as an emoji grid: squares only, so the rows line up; a colour with no square of its own borrows one
@@ -2017,7 +2019,7 @@ function finishLevel(result, reason) {
   }
   if (result === 'won' && G.def.daily) {
     const d = G.def.daily;
-    if (!daily.wins[d.key]) daily.wins[d.key] = { timeSec: rec.timeSec, dispatches: rec.dispatches, boxes: rec.maxBoxesUsed, attempts: rec.attempt };   // the first win is the result, as the genre does it
+    if (!daily.wins[d.key]) daily.wins[d.key] = { timeSec: rec.timeSec, dispatches: rec.dispatches, boxes: rec.maxBoxesUsed, attempts: rec.attempt, layout: d.layout };   // the first win is the result, as the genre does it
     Object.assign(daily, DAILY.streakAfter(daily, d.n)); saveDaily();
   }
   UI.showCard(result, reason, rec);
@@ -2360,6 +2362,18 @@ const UI = (() => {
     if (won) { const sh = button('Share', 'good share', (ev) => { ev.stopPropagation(); shareDaily(sh, k); }); t.appendChild(sh); }
     t.addEventListener('click', () => { Audio.init(); playDaily(); });
     dailyBox.appendChild(t);
+    if (won && !won.reconciled) { won.reconciled = true; setTimeout(() => { if (!Game.sim && reconcileDaily()) buildDaily(); }, 0); }   // once per record, off the paint
+  }
+  /** A stored result belongs to the puzzle it was earned on. If today's daily has since changed (a rotation change, a generator
+   *  change in a later build), the result is dropped rather than shown against a puzzle the player never saw, and a streak that
+   *  counted it steps back a day. Runs after the tile is drawn, because it has to generate the day's level to compare. */
+  function reconcileDaily() {
+    const now = Date.now(), k = DAILY.key(now), n = DAILY.number(now), won = daily.wins[k];
+    if (!won) return false;
+    if (won.layout === todaysDaily().daily.layout) return false;
+    delete daily.wins[k]; delete daily.attempts[k];
+    if (daily.lastWon === n) { if (daily.streak > 1) { daily.streak--; daily.lastWon = n - 1; } else { daily.streak = 0; daily.lastWon = 0; } }
+    saveDaily(); return true;
   }
   function playDaily() { Game.levelIndex = -1; startLevel(todaysDaily()); }
   function dailyShareText(k) { const won = daily.wins[k], n = DAILY.number(Date.parse(k + 'T00:00:00Z')); return DAILY.shareText({ n, timeSec: won.timeSec, boxes: won.boxes, attempts: won.attempts, art: ARTS[DAILY.artFor(n)].art }); }

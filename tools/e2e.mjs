@@ -417,6 +417,24 @@ const scenarios = {
     ok(again.attempts[info.key] === 2 && again.streak === 1 && again.wins[info.key].attempts === 1, 'a replay counts a second attempt; the streak and the stored result stay');
     ok((await api.page.evaluate(() => { const p = JSON.parse(localStorage.getItem('sc.progress') || '{"done":{}}'); return Object.keys(p.done).length === 0; })), 'the daily never writes into the chapter progress');
   },
+  async dailyStale(api) {
+    // a stored daily result belongs to the puzzle it was earned on: when the day's puzzle changes, the result is dropped rather than shown against the new one, and the streak steps back a day
+    const { k, n } = await api.page.evaluate(() => ({ k: SC.DAILY.key(Date.now()), n: SC.DAILY.number(Date.now()) }));
+    await api.page.evaluate(([k, n]) => localStorage.setItem('sc.daily', JSON.stringify({ attempts: { [k]: 2 }, wins: { [k]: { timeSec: 23, dispatches: 21, boxes: 2, attempts: 2, layout: 'ffffff' } }, streak: 3, best: 3, lastWon: n })), [k, n]);
+    const p2 = await api.page.context().newPage(); p2.on('pageerror', e => api.errors.push(e.message)); await p2.goto(PAGE_URL);
+    await p2.waitForFunction((k) => window.SC && !JSON.parse(localStorage.getItem('sc.daily')).wins[k], k, { timeout: 20000 });
+    const s = await p2.evaluate(() => ({ d: JSON.parse(localStorage.getItem('sc.daily')), tile: document.querySelectorAll('#daily .tile .meta')[1].textContent, share: !!document.querySelector('#daily .tile .share') }));
+    await p2.close();
+    ok(!s.d.wins[k] && !s.d.attempts[k], `a result earned on a different layout is dropped for ${k}`);
+    ok(s.d.streak === 2 && s.d.lastWon === n - 1 && s.d.best === 3, `the streak steps back to the day before (streak ${s.d.streak}, lastWon ${s.d.lastWon}, best ${s.d.best})`);
+    ok(/Not played yet/.test(s.tile) && /2-day streak/.test(s.tile) && !s.share, `the tile offers the new puzzle with the surviving streak (${s.tile})`);
+    // a matching record is left alone
+    await api.page.evaluate(([k, n]) => { const d = SC.DAILY.def(Date.now()); localStorage.setItem('sc.daily', JSON.stringify({ attempts: { [k]: 1 }, wins: { [k]: { timeSec: 61, dispatches: 30, boxes: 3, attempts: 1, layout: d.daily.layout } }, streak: 1, best: 1, lastWon: n })); }, [k, n]);
+    const p3 = await api.page.context().newPage(); p3.on('pageerror', e => api.errors.push(e.message)); await p3.goto(PAGE_URL); await p3.waitForFunction(() => window.SC); await p3.waitForTimeout(1500);
+    const s3 = await p3.evaluate(() => ({ kept: !!JSON.parse(localStorage.getItem('sc.daily')).wins[SC.DAILY.key(Date.now())], tile: document.querySelectorAll('#daily .tile .meta')[1].textContent }));
+    await p3.close();
+    ok(s3.kept && /Done in 1:01/.test(s3.tile), `a result on the current layout stays (${s3.tile})`);
+  },
   async pwa(api) {
     // installable (plan §2.4): manifest and icons in place, no worker from a file:// open, a home-screen hint after the second session, standalone launches counted
     const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
@@ -501,7 +519,7 @@ const names = wanted.length ? wanted : Object.keys(scenarios);
 for (const name of names) {
   if (!scenarios[name]) { console.log(`unknown scenario ${name}`); failures++; continue; }
   console.log(`\n== ${name} ==`);
-  const api = await open({ reducedMotion: name === 'reduced', dpr: name === 'allLevels' ? 1 : 2, query: name === 'liveBuild' ? '?debug=0' : '', time: name === 'daily' ? '2026-10-05T12:00:00Z' : undefined });
+  const api = await open({ reducedMotion: name === 'reduced', dpr: name === 'allLevels' ? 1 : 2, query: name === 'liveBuild' ? '?debug=0' : '', time: name === 'daily' || name === 'dailyStale' ? '2026-10-05T12:00:00Z' : undefined });
   try { await scenarios[name](api); } catch (e) { ok(false, `${name} threw: ${e.stack || e}`); }
   const errs = api.errors;
   ok(errs.length === 0, errs.length ? `console errors: ${errs.join(' | ').slice(0, 300)}` : 'no console errors');

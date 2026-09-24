@@ -298,6 +298,7 @@ console.log('\n== daily (plan §2.2) ==');
   const a = DAILY.def(d1), b = DAILY.def(d1b), c = DAILY.def(d2);
   ok(a.id === 'daily-2026-09-24' && JSON.stringify(a.lanes) === JSON.stringify(b.lanes) && a.preset === 'medium' && a.daily.n === 1 && a.artId === 'chick', `the same UTC date generates the same level everywhere (${a.id}: ${a.lanes.length} lanes, rated ${fmt(a.achieved)}, ${a.ref.length} dispatches)`);
   ok(c.id === 'daily-2026-09-25' && c.artId === 'mushroom' && JSON.stringify(c.lanes) !== JSON.stringify(a.lanes), 'the next day is a different level with the next picture');
+  ok(a.daily.layout === layoutHash(a.art, a.lanes) && a.daily.layout !== c.daily.layout, 'the daily carries its layout hash, the identity a stored result is checked against');
   { const off = []; for (let n = 1; n <= 30; n++) { const d = DAILY.def(DAILY.EPOCH + (n - 1) * 86400000).ref.length; if (d < 25 || d > 40) off.push(`#${n}:${d}`); }
     ok(off.length === 0, `the first thirty dailies all sit in the 25–40 dispatch band${off.length ? ' (NOT: ' + off.join(', ') + ')' : ''}`); }
   { const sim = createSim(a); const idOf = {}; let bad = false;
