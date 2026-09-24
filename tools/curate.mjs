@@ -32,12 +32,13 @@ const MAX_USES = 3;                                      // an art appears at mo
 
 // The curve, one entry per level. A number is the random-win rate to aim for; `pin` keeps a hand-made level in that slot;
 // `boss` closes a chapter with a level the greedy player loses (target ≤ 0.05 uses the generator's hard-ceiling search).
+// Lookahead levels live only in boss slots: every other level must be one the greedy player solves (plan §2.1).
 const CURVE = [
   { pin: 'heart' }, 0.92, 0.88, 0.84, 0.80, 0.76, 0.72, { pin: 'chick' },
   0.66, 0.62, 0.58, { pin: 'mushroom' }, 0.48, 0.44, 0.40, { boss: 0.12 },
   0.36, { pin: 'icecream' }, 0.28, 0.25, 0.22, 0.20, 0.18, { boss: 0.05 },
   0.18, 0.16, 0.15, { pin: 'catface' }, 0.12, 0.11, 0.10, { boss: 0.05 },
-  0.10, 0.09, 0.08, 0.08, 0.07, 0.06, 0.06, { pin: 'rainbow' },
+  0.10, 0.09, 0.08, 0.08, 0.07, 0.06, 0.06, { pin: 'rainbow', boss: 0.05 },
 ];
 
 /** generator parameters for a target rate: interpolates the plan's four presets */
@@ -63,10 +64,14 @@ CURVE.forEach((entry, i) => {
   const n = i + 1, chapter = Math.floor(i / CHAPTER);
   if (entry.pin) {
     const lv = pinned[entry.pin];
-    out.push({ ...lv, lanes: lv.lanes.slice() });
+    const isBoss = entry.boss !== undefined;
+    if (isBoss && lv.rating.greedyWins) unfillable.push(`level ${n} (pinned ${lv.id}) sits in a boss slot but the greedy player solves it`);
+    if (!isBoss && !lv.rating.greedyWins) unfillable.push(`level ${n} (pinned ${lv.id}) needs lookahead but is not in a boss slot; move it in CURVE`);
+    if (isBoss && lv.rating.randomWin > entry.boss + 1e-9) unfillable.push(`level ${n} (pinned ${lv.id}, rated ${lv.rating.randomWin}) is above its boss ceiling ${entry.boss}`);
+    out.push({ ...lv, lanes: lv.lanes.slice(), curve: isBoss ? { target: entry.boss, boss: true } : undefined });
     const L = loadLevel(lv); const r = GEN.solve(L.cols, L.lanes.map(l => l.map(c => [c.color, c.count])), L.trayCapacity, 5e6);
     rows.push({ n, id: lv.id, target: lv.rating.randomWin, achieved: lv.rating.randomWin, greedy: lv.rating.greedyWins, dispatches: r.solvable ? r.line.length : NaN, note: 'pinned' });
-    if (lv.rating.greedyWins) {                        // a pinned lookahead level (rainbow) is a boss; the others sit on the curve like any level
+    if (!isBoss) {                                     // a pinned boss (rainbow) is exempt from the descent; the others sit on the curve like any level
       if (lastNonBoss !== null && lv.rating.randomWin > lastNonBoss + CLIMB + 1e-9) unfillable.push(`level ${n} (pinned ${lv.id}, rated ${lv.rating.randomWin}) climbs more than ${CLIMB} above the previous level (${lastNonBoss}); move it in CURVE`);
       lastNonBoss = lv.rating.randomWin;
     }
@@ -77,7 +82,7 @@ CURVE.forEach((entry, i) => {
   const candidates = Object.keys(ARTS).filter(a => !chapterArts[chapter].has(a) && uses[a] < MAX_USES)
     .sort((a, b) => uses[a] - uses[b] || (a < b ? -1 : 1));
   const pool = candidates.slice(0, ARTS_PER_SLOT);
-  let best = null, nearest = null, nearestBoss = null, nearestCeil = null, nearestClimb = null;
+  let best = null, nearest = null, nearestBoss = null, nearestCeil = null, nearestClimb = null, nearestLook = null;
   const ceiling = boss && GEN.PRESETS[presetName].targetIsCeiling;   // a hard boss: the plan's ≤ 5 % is binding, not the generator's ±0.10 band
   for (const artId of pool) for (let seed = 1; seed <= SEEDS; seed++) {
     const lv = GEN.generateLevel({ art: ARTS[artId].art, artId, preset: presetName, seed, candidates: 48 });
@@ -86,6 +91,7 @@ CURVE.forEach((entry, i) => {
     if (boss && lv.greedyWins) { if (!nearestBoss || Math.abs(lv.achieved - target) < Math.abs(nearestBoss.achieved - target)) nearestBoss = { artId, seed, d, achieved: lv.achieved }; continue; }   // a boss the greedy player solves is not a boss: binding, no override
     if (ceiling && lv.achieved > target + 1e-9) { if (!nearestCeil || lv.achieved < nearestCeil.achieved) nearestCeil = { artId, seed, d, achieved: lv.achieved }; continue; }   // above the ceiling: not a hard boss, no override
     if (!boss && lastNonBoss !== null && lv.achieved > lastNonBoss + CLIMB + 1e-9) { if (!nearestClimb || lv.achieved < nearestClimb.achieved) nearestClimb = { artId, seed, d, achieved: lv.achieved }; continue; }   // would climb back up the curve
+    if (!boss && !lv.greedyWins) { if (!nearestLook || Math.abs(lv.achieved - target) < Math.abs(nearestLook.achieved - target)) nearestLook = { artId, seed, d, achieved: lv.achieved }; continue; }   // lookahead levels only close chapters
     const score = Math.abs(lv.achieved - target) + (outside ? 0.5 + 0.02 * outside : 0) + 0.03 * uses[artId];
     if (!best || score < best.score) best = { score, lv, artId, seed, outside };
   }
@@ -93,6 +99,7 @@ CURVE.forEach((entry, i) => {
     if (boss && nearestBoss && !nearest && !nearestCeil) unfillable.push(`level ${n} (boss, target ${target}): every candidate is greedy-solvable; nearest ${nearestBoss.artId} seed ${nearestBoss.seed} rated ${nearestBoss.achieved.toFixed(2)}. Try more --seeds or --arts; there is no override for the boss rule`);
     else if (ceiling && nearestCeil && !nearest) unfillable.push(`level ${n} (hard boss, ceiling ${target}): no greedy-losing candidate at or below the ceiling; lowest ${nearestCeil.artId} seed ${nearestCeil.seed} rated ${nearestCeil.achieved.toFixed(3)}. Try more --seeds or --arts; there is no override for the ceiling`);
     else if (nearestClimb && !nearest) unfillable.push(`level ${n} (target ${target}): every in-band candidate is rated more than ${CLIMB} above the previous level (${lastNonBoss.toFixed(2)}); lowest ${nearestClimb.artId} seed ${nearestClimb.seed} rated ${nearestClimb.achieved.toFixed(2)}. Try more --seeds or --arts, or lower the earlier targets in CURVE`);
+    else if (nearestLook && !nearest) unfillable.push(`level ${n} (target ${target}): every in-band candidate needs lookahead, which only a boss slot may; nearest ${nearestLook.artId} seed ${nearestLook.seed} rated ${nearestLook.achieved.toFixed(2)}. Try more --seeds or --arts, or raise the target`);
     else unfillable.push(`level ${n} (target ${target}${boss ? ', boss' : ''}): no candidate inside ${BAND[0]}–${BAND[1]} dispatches${boss ? ' that the greedy player loses' : ''}; nearest ${nearest ? `${nearest.artId} seed ${nearest.seed} at ${nearest.d} (rated ${nearest.achieved.toFixed(2)})` : 'none'}`);
     return;
   }
@@ -123,7 +130,7 @@ console.log(`\n${inBand}/${rows.length} levels inside the ${BAND[0]}–${BAND[1]
 function levelText(lv) {
   const lanes = lv.lanes.map(l => `"${l}"`).join(', ');
   const rating = lv.pinned
-    ? `rating:{ randomWin:${lv.rating.randomWin}, greedyWins:${lv.rating.greedyWins} }`
+    ? `${lv.curve ? `curve:{ target:${lv.curve.target}, boss:true }, ` : ''}rating:{ randomWin:${lv.rating.randomWin}, greedyWins:${lv.rating.greedyWins} }`
     : `seed:${lv.seed}, curve:{ target:${lv.curve.target}${lv.curve.boss ? ', boss:true' : ''}${lv.curve.offBand ? ', offBand:true' : ''} },\n    rating:{ randomWin:${lv.rating.randomWin}, greedyWins:${lv.rating.greedyWins}, dispatches:${lv.rating.dispatches} },\n    ref:[${lv.ref.join(',')}]`;
   return `  { id:'${lv.id}', name:'${lv.name}', artId:'${lv.artId}', art:ARTS.${lv.artId}.art, lanes:[ ${lanes} ],${lv.pinned ? ' pinned:true,' : ''}\n    ${rating} },\n`;
 }

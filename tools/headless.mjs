@@ -116,13 +116,15 @@ for (const lv of PINNED) {
   }
   ok(off.length === 0, `baked ratings hold: ${N} fresh playouts per curated level within ±0.10 of the tile's number${off.length ? ' (off: ' + off.join(', ') + ')' : ''}`);
   ok(greedyOff.length === 0, `baked greedy flags hold${greedyOff.length ? ' (off: ' + greedyOff.join(', ') + ')' : ''}`);
-  const bosses = CURATED.filter(l => l.curve && l.curve.boss);
+  const isBoss = (l) => !!(l.curve && l.curve.boss);
+  const bosses = LEVELS.filter(isBoss), others = LEVELS.filter(l => !isBoss(l));
   ok(bosses.length > 0 && bosses.every(l => !l.rating.greedyWins), `every chapter boss needs lookahead (${bosses.map(l => l.id).join(', ')})`);
+  ok(others.every(l => l.rating.greedyWins), `lookahead levels live only in boss slots: every other level is greedy-solvable${others.filter(l => !l.rating.greedyWins).length ? ' (NOT: ' + others.filter(l => !l.rating.greedyWins).map(l => l.id).join(', ') + ')' : ''}`);
   // the curve descends: outside the chapter bosses (and the pinned lookahead finale) no level is rated more than 0.10 above the previous one (plan §2.1)
   { let prev = null; const climbs = [];
-    for (const l of LEVELS) { if ((l.curve && l.curve.boss) || !l.rating.greedyWins) continue; const r = l.rating.randomWin; if (prev && r > prev.r + 0.10 + 1e-9) climbs.push(`${l.id} ${r} after ${prev.id} ${prev.r}`); prev = { id: l.id, r }; }
+    for (const l of LEVELS) { if (isBoss(l)) continue; const r = l.rating.randomWin; if (prev && r > prev.r + 0.10 + 1e-9) climbs.push(`${l.id} ${r} after ${prev.id} ${prev.r}`); prev = { id: l.id, r }; }
     ok(climbs.length === 0, `the curve never climbs back by more than 0.10 outside the chapter bosses${climbs.length ? ' (' + climbs.join('; ') + ')' : ''}`); }
-  const hardBosses = bosses.filter(l => l.curve.target <= 0.05);
+  const hardBosses = bosses.filter(l => l.curve.target <= 0.05);   // the pinned finale carries its ceiling too
   ok(hardBosses.every(l => l.rating.randomWin <= l.curve.target), `every hard boss is rated at or below its 5 % ceiling (${hardBosses.map(l => `${l.id} ${l.rating.randomWin}`).join(', ')})`);
 }
 
