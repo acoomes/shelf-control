@@ -19,7 +19,7 @@ Companion to `shelf-control-prototype-plan.md` (v1). That document asked whether
 
 - Ten new arts, each ≤ 12 × 12 with 4–7 colours, authored as text grids like the existing six and reviewed on the test build before curation. Art is the real bottleneck: levels are nearly free, pictures are not.
 - `tools/curate.mjs`: for each art × preset, run the existing generator (64 candidates, rated, six finalists re-rated), keep the candidate closest to the band, and emit the baked `LEVELS` block into `index.html`. Regenerated, never hand-edited. Every baked level keeps passing the loader and the solver in the headless suite.
-- Difficulty curve, measured not felt: order by random-win rate descending with greedy-solvable levels first; the first "needs lookahead" level appears around level 15; one hard (≤ 5 %) level per eight. Levels 1–3 stay as they are (the tutorial is tuned to them). Curation also enforces the prototype's H4 band: 20–45 dispatches per level, so a level runs 45–90 s.
+- Difficulty curve, measured not felt: order by random-win rate descending with greedy-solvable levels first; the first "needs lookahead" level appears around level 15; one hard (≤ 5 %) level per eight. Levels 1–3 stay as they are (the tutorial is tuned to them). Curation also enforces the prototype's H4 band as written there: 25–40 dispatches per level, so a level runs 45–90 s. If the art set cannot fill 40 slots inside that band, the band is widened by a written decision that re-opens H4, never by the tool.
 - Level select scrolls in pages of eight; done/not-done plus best time, which the game already stores. No stars, no currencies.
 
 Acceptance: 40 levels live; the evaluator's curve is monotone within ±0.10; every level solvable; each level's reference line fits the dispatch band.
@@ -50,7 +50,7 @@ Acceptance: installable per Lighthouse; launches from the home screen offline; t
 ### 2.5 Close the prototype's open hypotheses (cheap, and they gate iteration 3)
 
 - **H1**: five people play build mode, then the yoink mode from the generated chooser (alternate the order), and say which they would keep playing. Thirty minutes of your time. The loser is deleted, not kept "just in case".
-- **H3**: a fifteen-second screen recording of level 3 shown cold to three people who then explain the rules. If they cannot, the level select and tutorial need work before any money goes into distribution.
+- **H3**: a fifteen-second screen recording of level 3 shown cold to three people who then explain the rules. The recording contains gameplay only, so if they cannot, the fix goes into what it shows (the ghost cells, the count badges, the tray, the drop itself) and never into the tutorial, which the recording does not contain. The recording is then re-shot on the changed build and shown to three new people. No money goes into distribution while H3 fails.
 
 ### 2.6 Fix list
 
