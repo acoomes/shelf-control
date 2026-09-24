@@ -19,7 +19,7 @@ const m = /<script id="core">([\s\S]*?)<\/script>/.exec(html);
 if (!m) { console.error('core script not found'); process.exit(2); }
 const sandbox = { module: { exports: {} }, console };
 vm.runInNewContext(m[1], sandbox, { filename: 'core.js' });
-const { ARTS, LEVELS, GEN, loadLevel } = sandbox.module.exports;
+const { ARTS, LEVELS, GEN, loadLevel, layoutHash } = sandbox.module.exports;
 
 const argv = process.argv.slice(2);
 const flag = (name, dflt) => { const i = argv.indexOf(name); return i >= 0 ? Number(argv[i + 1]) : dflt; };
@@ -109,9 +109,11 @@ CURVE.forEach((entry, i) => {
   // the reference line as sim cat ids (cats are numbered lane by lane, front to back), so the headless suite can replay it
   const offsets = []; let acc = 0; for (const l of lv.lanes) { offsets.push(acc); acc += l.split(' ').length; }
   const ref = lv.ref.map(k => offsets[lv.where[k][0]] + lv.where[k][1]);
-  out.push({ id: `${artId}-${n}`, name: ARTS[artId].name, artId, lanes: lv.lanes.slice(), seed, curve: { target, boss, offBand: best.outside > 0 }, ref,
+  // the id carries the layout, so a later bake that changes this slot's puzzle also changes the key progress is stored under
+  const id = `${artId}-${n}-${layoutHash(ARTS[artId].art, lv.lanes)}`;
+  out.push({ id, name: ARTS[artId].name, artId, lanes: lv.lanes.slice(), seed, curve: { target, boss, offBand: best.outside > 0 }, ref,
              rating: { randomWin: Math.round(lv.achieved * 1000) / 1000, greedyWins: lv.greedyWins, dispatches: lv.ref.length } });
-  rows.push({ n, id: `${artId}-${n}`, target, achieved: lv.achieved, greedy: lv.greedyWins, dispatches: lv.ref.length,
+  rows.push({ n, id, target, achieved: lv.achieved, greedy: lv.greedyWins, dispatches: lv.ref.length,
               note: best.outside ? `off-band by ${best.outside} (written decision: --allow-off-band)` : '' });
   process.stderr.write(`slot ${n}/${CURVE.length} ${artId} target ${target} → ${lv.achieved.toFixed(2)}${lv.greedyWins ? 'g' : 'L'}/${lv.ref.length}\n`);
 });
@@ -122,7 +124,7 @@ if (unfillable.length) {
 }
 console.log(`\n== curve (${((Date.now() - t0) / 1000).toFixed(0)} s) ==`);
 console.log('lvl  id                 target  achieved  greedy  dispatches  note');
-for (const r of rows) console.log(`${String(r.n).padStart(3)}  ${r.id.padEnd(18)} ${r.target.toFixed(2).padStart(6)}  ${r.achieved.toFixed(2).padStart(8)}  ${(r.greedy ? 'wins' : 'LOSES').padEnd(6)}  ${String(r.dispatches).padStart(10)}  ${r.note}`);
+for (const r of rows) console.log(`${String(r.n).padStart(3)}  ${r.id.padEnd(22)} ${r.target.toFixed(2).padStart(6)}  ${r.achieved.toFixed(2).padStart(8)}  ${(r.greedy ? 'wins' : 'LOSES').padEnd(6)}  ${String(r.dispatches).padStart(10)}  ${r.note}`);
 const inBand = rows.filter(r => r.dispatches >= BAND[0] && r.dispatches <= BAND[1]).length;
 const pinnedOut = rows.filter(r => r.note === 'pinned' && (r.dispatches < BAND[0] || r.dispatches > BAND[1])).map(r => `${r.id} ${r.dispatches}`);
 console.log(`\n${inBand}/${rows.length} levels inside the ${BAND[0]}–${BAND[1]} dispatch band (every curated level is; pinned references outside it: ${pinnedOut.join(', ') || 'none'}); art uses: ${Object.entries(uses).map(([a, u]) => `${a}:${u}`).join(' ')}`);

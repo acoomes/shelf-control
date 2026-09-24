@@ -16,7 +16,7 @@ if (!m) { console.error('core script not found'); process.exit(2); }
 const sandbox = { module: { exports: {} }, console };
 vm.runInNewContext(m[1], sandbox, { filename: 'core.js' });
 const C = sandbox.module.exports;
-const { ARTS, LEVELS, BACKTEST, GEN, createSim, makeRng, loadLevel, validateBakedLevels } = C;
+const { ARTS, LEVELS, BACKTEST, GEN, createSim, makeRng, loadLevel, validateBakedLevels, layoutHash } = C;
 const PINNED = LEVELS.filter(l => l.pinned), CURATED = LEVELS.filter(l => !l.pinned);   // six Appendix B references + the curated rest
 const ART_LIST = Object.entries(ARTS).map(([id, a]) => ({ id, art: a.art }));
 
@@ -29,6 +29,13 @@ const fmt = (x) => (typeof x === 'number' ? x.toFixed(3) : String(x));
 
 console.log('== loader ==');
 try { validateBakedLevels(); ok(true, `all ${LEVELS.length} baked levels pass loader assertions (${PINNED.length} pinned, ${CURATED.length} curated from ${ART_LIST.length} arts)`); } catch (e) { ok(false, `loader: ${e.message}`); }
+ok(PINNED.every(lv => lv.id === lv.artId) && CURATED.every(lv => lv.id === `${lv.artId}-${LEVELS.indexOf(lv) + 1}-${layoutHash(lv.art, lv.lanes)}`), 'ids are identities: a pinned reference is its art, a curated level is art-slot-layout hash');
+{ // the same lanes in another order is a different puzzle: its id no longer matches, and the loader says so
+  const lv = CURATED[0], keep = lv.lanes; lv.lanes = [...keep.slice(1), keep[0]]; let threw = false;
+  try { validateBakedLevels(); } catch (e) { threw = /does not match its layout/.test(e.message); }
+  lv.lanes = keep;
+  ok(threw && keep.length > 1, `loader rejects a curated level whose lanes changed without a re-bake (${lv.id})`);
+}
 for (const bad of [
   { name: 'gap under a colour', level: { art: ['RR', '.R'], lanes: ['R3'] } },
   { name: 'ragged rows', level: { art: ['RRR', 'RR'], lanes: ['R5'] } },
