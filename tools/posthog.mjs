@@ -158,9 +158,9 @@ const INSIGHTS = [
   },
   {
     name: 'Daily: plays, wins, shares',
-    description: 'Daily-level plays ending, first-try or not, wins, and shares pressed. A share is the loop the "collectible, shareable" claim rests on.',
+    description: 'Daily plays started (one per play, retries included; a play\'s start is counted rather than its endings, since a continued play reports two), daily wins, and shares pressed. A share is the loop the "collectible, shareable" claim rests on.',
     query: viz({ kind: 'TrendsQuery', dateRange: range, properties: [live], interval: 'day',
-      series: [ev('level_end', [prop('daily', 'is_set')]), ev('level_end', [prop('daily', 'is_set'), prop('result', 'exact', 'won')]), ev('daily_share')],
+      series: [ev('level_start', [prop('daily', 'is_set')]), ev('level_end', [prop('daily', 'is_set'), prop('result', 'exact', 'won')]), ev('daily_share')],
       trendsFilter: { display: 'ActionsLineGraph' } }),
   },
   {
