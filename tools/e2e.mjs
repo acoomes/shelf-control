@@ -434,6 +434,10 @@ const scenarios = {
     await page.reload(); await api.run(400);
     const s3 = await page.evaluate(() => ({ kept: !!JSON.parse(localStorage.getItem('sc.daily')).wins[SC.DAILY.key(Date.now())], tile: document.querySelectorAll('#daily .tile .meta')[1].textContent }));
     ok(s3.kept && /Done in 1:01/.test(s3.tile), `a result on the current layout stays (${s3.tile})`);
+    // a replay saves the books again: the stored win must carry only what was earned, never a session marker
+    await api.clickSel('#daily .tile'); await api.run(100);
+    const s4 = await page.evaluate((k) => { const w = JSON.parse(localStorage.getItem('sc.daily')).wins[k]; return { keys: Object.keys(w).sort().join(','), attempts: JSON.parse(localStorage.getItem('sc.daily')).attempts[k] }; }, k);
+    ok(s4.keys === 'attempts,boxes,dispatches,layout,timeSec' && s4.attempts === 2, `after a replay the stored win holds only its result fields (${s4.keys})`);
   },
   async pwa(api) {
     // installable (plan §2.4): manifest and icons in place, no worker from a file:// open, a home-screen hint after the second session, standalone launches counted

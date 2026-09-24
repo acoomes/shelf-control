@@ -2343,7 +2343,7 @@ const UI = (() => {
   }
   // ---- daily level (plan §2.2): one generated level per UTC date, a streak, share text ----
   const dailyBox = $('#daily'), a2hs = $('#a2hs');
-  let dailyDef = null;
+  let dailyDef = null, reconciledKey = null;   // the day whose stored result this session has already checked; never written into the record
   function todaysDaily() { const k = DAILY.key(Date.now()); if (!dailyDef || dailyDef.daily.key !== k) dailyDef = DAILY.def(Date.now()); return dailyDef; }
   function buildDaily() {
     dailyBox.innerHTML = '';
@@ -2362,7 +2362,7 @@ const UI = (() => {
     if (won) { const sh = button('Share', 'good share', (ev) => { ev.stopPropagation(); shareDaily(sh, k); }); t.appendChild(sh); }
     t.addEventListener('click', () => { Audio.init(); playDaily(); });
     dailyBox.appendChild(t);
-    if (won && !won.reconciled) { won.reconciled = true; setTimeout(() => { if (!Game.sim && reconcileDaily()) buildDaily(); }, 0); }   // once per record, off the paint
+    if (won && reconciledKey !== k) { reconciledKey = k; setTimeout(() => { if (!Game.sim && reconcileDaily()) buildDaily(); }, 0); }   // once per session and day, off the paint
   }
   /** A stored result belongs to the puzzle it was earned on. If today's daily has since changed (a rotation change, a generator
    *  change in a later build), the result is dropped rather than shown against a puzzle the player never saw, and a streak that
