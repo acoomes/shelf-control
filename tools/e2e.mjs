@@ -166,6 +166,10 @@ const scenarios = {
     ok(s.status === 'won', `won after the continue (6 boxes, stats: ${JSON.stringify(s.stats)})`);
     const tele = await api.page.evaluate(() => SC.telemetry());
     ok(tele.length === 2 && tele[0].result === 'failed' && tele[0].reason === 'no_box' && tele[1].result === 'won' && tele[1].continuesUsed === 1, `telemetry: ${JSON.stringify(tele.map(r => [r.result, r.reason, r.continuesUsed]))}`);
+    // the accepted continue is an event of its own, and the play id ties it to the failure it rescued and the ending that followed
+    const q = await api.page.evaluate(() => JSON.parse(localStorage.getItem('sc.tq')).filter(e => e.event !== 'session_start').map(e => ({ event: e.event, play: e.properties.play, reason: e.properties.reason, result: e.properties.result, continuesUsed: e.properties.continuesUsed, placedPct: e.properties.placedPct })));
+    ok(q.map(e => e.event).join(',') === 'level_start,level_end,level_continue,level_end', `queued events: ${q.map(e => e.event).join(', ')}`);
+    ok(q.every(e => /^[0-9a-f]{8}$/.test(e.play) && e.play === q[0].play) && q[1].continuesUsed === 0 && q[2].reason === 'no_box' && q[2].placedPct === Number((txt.match(/(\d+)% of the picture/) || [])[1]) && q[3].result === 'won' && q[3].continuesUsed === 1 && tele[0].play === q[0].play, `one play id on all four (${q[0].play}); the continue names the failure it rescued and the card's ${q[2].placedPct}% placed`);
   },
   async stuck(api) {
     await api.start(FIX.stuck);
@@ -488,6 +492,27 @@ const scenarios = {
     ok(s.uuids.length === 3 && s.uuids.every(u => typeof u === 'string' && u.length >= 8) && s.posts[0].join() === 'a' && s.afterFirst.join() === 'b,c', `an acknowledged batch leaves by uuid; what other tabs or later play added stays (${s.afterFirst.join(', ')} remained)`);
     ok(s.posts[1].join() === 'b,c' && s.afterSecond === 0, 'the rest goes in the next post');
     ok(s.heldPosts === 2 && s.heldPending === 1 && s.posts[2].join() === 'd' && s.finalPending === 0, `a lease held by another tab defers the post until it lapses (${s.posts.length} posts)`);
+    // the opt-out is one per origin: the flag another tab persisted stops this tab recording and posting before anything syncs, a flush
+    // drops what that tab may have queued meanwhile, and the storage event brings the setting itself across (and back)
+    s = await page.evaluate(async () => {
+      const tick = async () => { for (let i = 0; i < 6; i++) await null; };
+      SC.Telemetry.transport = () => Promise.resolve(false);                                   // nothing gets through, so the queue shows what was recorded
+      SC.Telemetry.record('level_start', { level: 'y' }); await tick();
+      const queued = SC.Telemetry.pending();
+      const persisted = JSON.parse(localStorage.getItem('sc.settings') || '{}');
+      const write = (v) => localStorage.setItem('sc.settings', JSON.stringify(Object.assign({}, persisted, { telemetry: v })));
+      write(false);                                                                             // what the other tab's toggle writes
+      const off = SC.Telemetry.record('level_start', { level: 'z' }), stillMemory = SC.settings.telemetry, beforeFlush = SC.Telemetry.pending();
+      SC.Telemetry.flush(); await tick();
+      const afterFlush = SC.Telemetry.pending();
+      window.dispatchEvent(new StorageEvent('storage', { key: 'sc.settings', newValue: localStorage.getItem('sc.settings') }));
+      const synced = SC.settings.telemetry;
+      write(true); window.dispatchEvent(new StorageEvent('storage', { key: 'sc.settings', newValue: localStorage.getItem('sc.settings') }));
+      const back = SC.settings.telemetry, on = SC.Telemetry.record('level_start', { level: 'w' }); await tick();
+      return { queued, off, stillMemory, beforeFlush, afterFlush, synced, back, on: !!on, finalPending: SC.Telemetry.pending() };
+    });
+    ok(s.queued === 1 && s.off === null && s.stillMemory === true && s.beforeFlush === 1 && s.afterFlush === 0, `another tab's opt-out stops this tab recording at once, and its next flush drops the queue (${s.beforeFlush} → ${s.afterFlush})`);
+    ok(s.synced === false && s.back === true && s.on && s.finalPending === 1, 'the storage event carries the setting across, and back');
   },
   async pwa(api) {
     // installable (plan §2.4): manifest and icons in place, no worker from a file:// open, a home-screen hint after the second session, standalone launches counted
