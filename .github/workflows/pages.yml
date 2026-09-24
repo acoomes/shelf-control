@@ -71,6 +71,9 @@ jobs:
           done
           sed -i 's/"name": "Shelf Control"/"name": "Shelf Control (test)"/; s/"short_name": "Shelf Control"/"short_name": "SC test"/' site/test/manifest.webmanifest
           grep -q '"name": "Shelf Control (test)"' site/test/manifest.webmanifest
+          # iOS labels a home-screen app by this meta, not the manifest, so the test build gets its short name here too
+          sed -i 's/^<meta name="apple-mobile-web-app-title" content="Shelf Control">$/<meta name="apple-mobile-web-app-title" content="SC test">/' site/test/index.html
+          grep -q '^<meta name="apple-mobile-web-app-title" content="SC test">$' site/test/index.html
           touch site/.nojekyll
           echo "live: $(git -C live rev-parse --short HEAD)  test: $([ "${{ steps.dev.outputs.exists }}" = "true" ] && git -C test rev-parse --short HEAD || echo 'main (no dev branch yet)')"
       - uses: actions/configure-pages@v5
