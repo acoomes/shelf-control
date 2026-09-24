@@ -1227,12 +1227,21 @@ sessions.count++; if (standalone) sessions.standalone++; Store.set('sc.sessions'
 // played offline (the installed app) reports when the device is next online. Off from a file:// open, off via the settings
 // toggle, and the transport is replaceable so the browser suite can read what would have been sent. The key is a public
 // write-only project token.
-const TELEMETRY = { key: 'phc_xSXx3TjTHBMdD6NeX2g7TcqVs2fErApHk7yg8nazTLkM', host: 'https://us.i.posthog.com', batch: 50, keep: 200 };
+const TELEMETRY = { key: 'phc_xSXx3TjTHBMdD6NeX2g7TcqVs2fErApHk7yg8nazTLkM', host: 'https://us.i.posthog.com', batch: 50, keep: 200, lease: 15000 };
 const Telemetry = (() => {
   const hex = (n) => { let out = ''; for (let i = 0; i < n; i++) out += ((Math.random() * 16) | 0).toString(16); return out; };
+  const uuid = () => { try { return crypto.randomUUID(); } catch (e) { return `${hex(8)}-${hex(4)}-4${hex(3)}-a${hex(3)}-${hex(12)}`; } };
   let device = Store.get('sc.device', null); if (typeof device !== 'string' || !device) { device = hex(16); Store.set('sc.device', device); }
   const session = hex(8);
-  let queue = Store.get('sc.tq', []); if (!Array.isArray(queue)) queue = [];
+  // The queue lives in storage, which the live build and /test/ share on one origin, as do two tabs of either. So storage is the
+  // truth: every change is a fresh read, an edit and a write, acknowledged events are removed by their uuid rather than by
+  // position, and a short lease keeps two tabs from posting the same backlog at once. The uuid also lets PostHog drop a
+  // duplicate if a post is acknowledged twice.
+  const load = () => { const q = Store.get('sc.tq', []); return Array.isArray(q) ? q : []; };
+  const save = (q) => Store.set('sc.tq', q);
+  const leaseHeld = () => { const l = Store.get('sc.tqlock', null); return !!(l && l.owner !== session && l.until > Date.now()); };
+  const takeLease = () => Store.set('sc.tqlock', { owner: session, until: Date.now() + TELEMETRY.lease });
+  const dropLease = () => { const l = Store.get('sc.tqlock', null); if (l && l.owner === session) Store.set('sc.tqlock', null); };
   const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
   const platform = /iPhone|iPad|iPod/.test(ua) ? 'ios' : /Android/.test(ua) ? 'android' : /Mobile/.test(ua) ? 'mobile' : 'desktop';
   const browser = /Edg/.test(ua) ? 'edge' : /CriOS|Chrome/.test(ua) ? 'chrome' : /Firefox|FxiOS/.test(ua) ? 'firefox' : /Safari/.test(ua) ? 'safari' : 'other';
@@ -1250,24 +1259,24 @@ const Telemetry = (() => {
     enabled: /^https?:$/.test(location.protocol) && !!TELEMETRY.key,
     transport: null, flushing: false, sent: 0, lastStatus: null, lastError: null, device, session,
     on: () => settings.telemetry !== false,
-    pending: () => queue.length,
+    pending: () => load().length,
     record(event, props) {
       if (!T.on()) return null;
-      const e = { event, distinct_id: device, timestamp: new Date().toISOString(), properties: Object.assign(base(), props || {}, { distinct_id: device }) };
-      queue.push(e); if (queue.length > TELEMETRY.keep) queue.splice(0, queue.length - TELEMETRY.keep);
-      Store.set('sc.tq', queue); T.flush(); return e;
+      const e = { uuid: uuid(), event, distinct_id: device, timestamp: new Date().toISOString(), properties: Object.assign(base(), props || {}, { distinct_id: device }) };
+      const q = load(); q.push(e); if (q.length > TELEMETRY.keep) q.splice(0, q.length - TELEMETRY.keep);
+      save(q); T.flush(); return e;
     },
     async flush() {
-      if (!T.enabled || T.flushing || !queue.length) return false;
-      T.flushing = true; let ok = false;
-      const batch = queue.slice(0, TELEMETRY.batch);
+      if (!T.enabled || T.flushing || leaseHeld()) return false;
+      const batch = load().slice(0, TELEMETRY.batch); if (!batch.length) return false;
+      T.flushing = true; takeLease(); let ok = false;
       try { ok = await (T.transport || post)({ api_key: TELEMETRY.key, batch }); T.lastError = null; } catch (e) { T.lastError = String((e && e.message) || e); }
-      if (ok) { queue.splice(0, batch.length); T.sent += batch.length; Store.set('sc.tq', queue); }
-      T.flushing = false;
-      if (ok && queue.length) T.flush();
+      if (ok) { const done = new Set(batch.map(e => e.uuid)); save(load().filter(e => !done.has(e.uuid))); T.sent += batch.length; }
+      dropLease(); T.flushing = false;
+      if (ok && load().length) T.flush();
       return ok;
     },
-    clear() { queue.length = 0; Store.set('sc.tq', queue); },
+    clear() { save([]); },
   };
   try {
     window.addEventListener('online', () => T.flush());

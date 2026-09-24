@@ -464,6 +464,30 @@ const scenarios = {
     // the queue is capped
     s = await page.evaluate(() => { for (let i = 0; i < 260; i++) SC.Telemetry.record('level_start', { i }); return SC.Telemetry.pending(); });
     ok(s === 200, `the queue keeps the latest 200 events when nothing can be sent (${s})`);
+    // storage is shared with other tabs (and with the other build on the same origin): acknowledged events leave by uuid, whatever else
+    // arrived meanwhile stays, and a lease held by another tab defers this one's post (microtasks only: the fake clock is paused)
+    s = await page.evaluate(async () => {
+      const tick = async () => { for (let i = 0; i < 6; i++) await null; };
+      localStorage.removeItem('sc.tqlock');   // the reload above left the old page's lease behind, and the paused clock would never let it lapse
+      SC.Telemetry.clear(); SC.Telemetry.enabled = true; window.__posts = []; let settle = null;   // the reload made this a file:// open again
+      SC.Telemetry.transport = (body) => { window.__posts.push(body.batch.map(e => e.properties.level)); return new Promise(r => { settle = r; }); };
+      SC.Telemetry.record('level_start', { level: 'a' });                       // in flight now
+      const q = JSON.parse(localStorage.getItem('sc.tq')); q.push({ uuid: 'from-another-tab', event: 'level_start', distinct_id: 'x', timestamp: 't', properties: { level: 'b' } }); localStorage.setItem('sc.tq', JSON.stringify(q));
+      SC.Telemetry.record('level_start', { level: 'c' });                       // recorded while in flight
+      const uuids = JSON.parse(localStorage.getItem('sc.tq')).map(e => e.uuid);
+      settle(true); await tick();                                               // a acknowledged; b and c must remain and go next
+      const afterFirst = JSON.parse(localStorage.getItem('sc.tq')).map(e => e.properties.level);
+      settle(true); await tick();
+      const afterSecond = JSON.parse(localStorage.getItem('sc.tq')).length;
+      localStorage.setItem('sc.tqlock', JSON.stringify({ owner: 'other-tab', until: Date.now() + 15000 }));
+      SC.Telemetry.record('level_start', { level: 'd' });
+      const heldPosts = window.__posts.length, heldPending = SC.Telemetry.pending();
+      localStorage.removeItem('sc.tqlock'); SC.Telemetry.flush(); await tick(); settle(true); await tick();
+      return { uuids, posts: window.__posts, afterFirst, afterSecond, heldPosts, heldPending, finalPending: SC.Telemetry.pending() };
+    });
+    ok(s.uuids.length === 3 && s.uuids.every(u => typeof u === 'string' && u.length >= 8) && s.posts[0].join() === 'a' && s.afterFirst.join() === 'b,c', `an acknowledged batch leaves by uuid; what other tabs or later play added stays (${s.afterFirst.join(', ')} remained)`);
+    ok(s.posts[1].join() === 'b,c' && s.afterSecond === 0, 'the rest goes in the next post');
+    ok(s.heldPosts === 2 && s.heldPending === 1 && s.posts[2].join() === 'd' && s.finalPending === 0, `a lease held by another tab defers the post until it lapses (${s.posts.length} posts)`);
   },
   async pwa(api) {
     // installable (plan §2.4): manifest and icons in place, no worker from a file:// open, a home-screen hint after the second session, standalone launches counted
