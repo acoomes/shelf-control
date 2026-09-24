@@ -71,8 +71,11 @@ for (const lv of PINNED) {
     if (fail) bad.push(`${lv.id}: ${fail}`);
   }
   ok(bad.length === 0, `every curated level wins in the sim along its baked reference line (${CURATED.length} levels)${bad.length ? ': ' + bad.join('; ') : ''}`);
-  const band = CURATED.filter(l => l.rating.dispatches >= 25 && l.rating.dispatches <= 40).length;
-  ok(band === CURATED.length, `every curated level sits in the H4 band of 25–40 dispatches (${band}/${CURATED.length})`);
+  const inBand = (l) => l.rating.dispatches >= 25 && l.rating.dispatches <= 40;
+  const overrides = CURATED.filter(l => l.curve && l.curve.offBand);                       // baked with --allow-off-band: a written decision, carried in the level itself
+  const band = CURATED.filter(l => inBand(l) || (l.curve && l.curve.offBand)).length;
+  ok(band === CURATED.length, `every curated level sits in the H4 band of 25–40 dispatches${overrides.length ? `, except ${overrides.length} baked outside it by written decision (${overrides.map(l => `${l.id} ${l.rating.dispatches}`).join(', ')})` : ''} (${CURATED.length - overrides.length}/${CURATED.length} in band)`);
+  ok(overrides.every(l => !inBand(l)), 'no level carries an off-band override it does not need');
   // the six references keep their hand-made lanes for the Appendix B cross-check; exactly two of them run outside the band,
   // by a written decision in the iteration 2 plan (§2.1): heart is the tutorial and short, rainbow is the finale and long
   const EXEMPT = { heart: true, rainbow: true };

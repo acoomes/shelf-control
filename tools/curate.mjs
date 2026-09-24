@@ -71,30 +71,34 @@ CURVE.forEach((entry, i) => {
   const candidates = Object.keys(ARTS).filter(a => !chapterArts[chapter].has(a) && uses[a] < MAX_USES)
     .sort((a, b) => uses[a] - uses[b] || (a < b ? -1 : 1));
   const pool = candidates.slice(0, ARTS_PER_SLOT);
-  let best = null, nearest = null;
+  let best = null, nearest = null, nearestBoss = null;
   for (const artId of pool) for (let seed = 1; seed <= SEEDS; seed++) {
     const lv = GEN.generateLevel({ art: ARTS[artId].art, artId, preset: presetName, seed, candidates: 48 });
     const d = lv.ref.length, outside = d < BAND[0] ? BAND[0] - d : d > BAND[1] ? d - BAND[1] : 0;
     if (outside && !ALLOW_OFF_BAND) { if (!nearest || outside < nearest.outside) nearest = { artId, seed, d, achieved: lv.achieved, outside }; continue; }   // never a candidate
-    let score = Math.abs(lv.achieved - target) + (outside ? 0.5 + 0.02 * outside : 0) + 0.03 * uses[artId];
-    if (boss) score += lv.greedyWins ? 1.0 : 0;                   // a boss the greedy player solves is not a boss
+    if (boss && lv.greedyWins) { if (!nearestBoss || Math.abs(lv.achieved - target) < Math.abs(nearestBoss.achieved - target)) nearestBoss = { artId, seed, d, achieved: lv.achieved }; continue; }   // a boss the greedy player solves is not a boss: binding, no override
+    const score = Math.abs(lv.achieved - target) + (outside ? 0.5 + 0.02 * outside : 0) + 0.03 * uses[artId];
     if (!best || score < best.score) best = { score, lv, artId, seed, outside };
   }
-  if (!best) { unfillable.push(`level ${n} (target ${target}${boss ? ', boss' : ''}): no candidate inside ${BAND[0]}–${BAND[1]} dispatches; nearest ${nearest.artId} seed ${nearest.seed} at ${nearest.d} (rated ${nearest.achieved.toFixed(2)})`); return; }
+  if (!best) {
+    if (boss && nearestBoss && !nearest) unfillable.push(`level ${n} (boss, target ${target}): every candidate is greedy-solvable; nearest ${nearestBoss.artId} seed ${nearestBoss.seed} rated ${nearestBoss.achieved.toFixed(2)}. Try more --seeds or --arts; there is no override for the boss rule`);
+    else unfillable.push(`level ${n} (target ${target}${boss ? ', boss' : ''}): no candidate inside ${BAND[0]}–${BAND[1]} dispatches${boss ? ' that the greedy player loses' : ''}; nearest ${nearest ? `${nearest.artId} seed ${nearest.seed} at ${nearest.d} (rated ${nearest.achieved.toFixed(2)})` : 'none'}`);
+    return;
+  }
   const { lv, artId, seed } = best;
   uses[artId]++; chapterArts[chapter].add(artId);
   // the reference line as sim cat ids (cats are numbered lane by lane, front to back), so the headless suite can replay it
   const offsets = []; let acc = 0; for (const l of lv.lanes) { offsets.push(acc); acc += l.split(' ').length; }
   const ref = lv.ref.map(k => offsets[lv.where[k][0]] + lv.where[k][1]);
-  out.push({ id: `${artId}-${n}`, name: ARTS[artId].name, artId, lanes: lv.lanes.slice(), seed, curve: { target, boss }, ref,
+  out.push({ id: `${artId}-${n}`, name: ARTS[artId].name, artId, lanes: lv.lanes.slice(), seed, curve: { target, boss, offBand: best.outside > 0 }, ref,
              rating: { randomWin: Math.round(lv.achieved * 1000) / 1000, greedyWins: lv.greedyWins, dispatches: lv.ref.length } });
   rows.push({ n, id: `${artId}-${n}`, target, achieved: lv.achieved, greedy: lv.greedyWins, dispatches: lv.ref.length,
-              note: (best.outside ? `off-band by ${best.outside}` : '') + (boss && lv.greedyWins ? ' NO GREEDY-LOSING CANDIDATE' : '') });
+              note: best.outside ? `off-band by ${best.outside} (written decision: --allow-off-band)` : '' });
   process.stderr.write(`slot ${n}/${CURVE.length} ${artId} target ${target} → ${lv.achieved.toFixed(2)}${lv.greedyWins ? 'g' : 'L'}/${lv.ref.length}\n`);
 });
 
 if (unfillable.length) {
-  console.error(`\nBake refused: ${unfillable.length} slot(s) have no candidate inside the dispatch band. Try more --seeds or --arts; widening the band is a written decision (plan §2.1), taken with --allow-off-band.\n  ` + unfillable.join('\n  '));
+  console.error(`\nBake refused: ${unfillable.length} slot(s) cannot be filled. Try more --seeds or --arts; widening the dispatch band is a written decision (plan §2.1), taken with --allow-off-band; the boss rule has no override.\n  ` + unfillable.join('\n  '));
   process.exit(1);
 }
 console.log(`\n== curve (${((Date.now() - t0) / 1000).toFixed(0)} s) ==`);
@@ -108,7 +112,7 @@ function levelText(lv) {
   const lanes = lv.lanes.map(l => `"${l}"`).join(', ');
   const rating = lv.pinned
     ? `rating:{ randomWin:${lv.rating.randomWin}, greedyWins:${lv.rating.greedyWins} }`
-    : `seed:${lv.seed}, curve:{ target:${lv.curve.target}${lv.curve.boss ? ', boss:true' : ''} },\n    rating:{ randomWin:${lv.rating.randomWin}, greedyWins:${lv.rating.greedyWins}, dispatches:${lv.rating.dispatches} },\n    ref:[${lv.ref.join(',')}]`;
+    : `seed:${lv.seed}, curve:{ target:${lv.curve.target}${lv.curve.boss ? ', boss:true' : ''}${lv.curve.offBand ? ', offBand:true' : ''} },\n    rating:{ randomWin:${lv.rating.randomWin}, greedyWins:${lv.rating.greedyWins}, dispatches:${lv.rating.dispatches} },\n    ref:[${lv.ref.join(',')}]`;
   return `  { id:'${lv.id}', name:'${lv.name}', artId:'${lv.artId}', art:ARTS.${lv.artId}.art, lanes:[ ${lanes} ],${lv.pinned ? ' pinned:true,' : ''}\n    ${rating} },\n`;
 }
 const block = "// ---- BAKED LEVELS: written by `node tools/curate.mjs`; do not edit by hand. Entries with pinned:true keep their hand-made\n"
