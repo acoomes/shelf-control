@@ -6,7 +6,7 @@ Two builds from one file: **live** at `https://andrewcoomes.com/shelf-control/` 
 
 ## Iteration 2 · slice 3 (part 1) — Measurement that reaches you
 
-**Status:** test build, into `dev` on 2026-09-24; not yet shipped to `main`.
+**Status:** live. [PR #8](https://github.com/acoomes/shelf-control/pull/8) into `dev` on 2026-09-24 (`62561bf`). Shipped to `main` by [PR #9](https://github.com/acoomes/shelf-control/pull/9) on 2026-09-24 (`110dc11`).
 
 - **Telemetry to PostHog.** Six events over plain HTTP: `session_start`, `level_start`, `level_end` (the play record the game already kept), `level_continue` (the *+1 box* accepted, with the failure it rescued, so the take-rate is accepted over offered), `daily_share` and `install`. A `play` id ties a level's start, its continue and its endings together. No PostHog script on the page, no cookies, an anonymous device id as the only identity, and a `channel` property that tells the live build from the test build in one project. Events queue in local storage and flush with keepalive fetches, so a session played offline in the installed app reports when the device is next online. *Anonymous play stats* in settings turns it off, in every open tab at once. The debug overlay shows what was sent and what is pending.
 - **Packaging by branch.** The deploy now assembles each build with that branch's own `tools/assemble.sh`, so a change to the installable-app files on `dev` reaches `/test/` without a ship; the headless suite runs the script for both channels.
@@ -17,7 +17,7 @@ The rest of slice 3 is people work: the stranger playtest with the portal listin
 
 ## Iteration 2 · slice 2 — The daily, the share and the home screen
 
-**Status:** test build, into `dev` on 2026-09-24; not yet shipped to `main`.
+**Status:** live. [PR #6](https://github.com/acoomes/shelf-control/pull/6) and [PR #7](https://github.com/acoomes/shelf-control/pull/7) into `dev` on 2026-09-24 (`7f50828`). Shipped to `main` by [PR #9](https://github.com/acoomes/shelf-control/pull/9) on 2026-09-24 (`110dc11`).
 
 - **Daily level.** One generated level per UTC date, the same on every device: the art rotates through the pictures with the tutorial heart sitting out (day 1, 2026-09-24, is the chick), the preset is medium, the seed is the date, and the level is the first of a few seeds whose reference line sits in the plan's 25–40 dispatch band, so a daily is never a warm-up. It sits above the chapters on the level select with its number, its picture and the result. Retries are allowed and counted; the first win is the result, and it belongs to the puzzle it was earned on: if a day's puzzle changes in a later build, the result is dropped rather than shown against the new one. A streak counts consecutive UTC days with a win.
 - **Share.** *Share* on the win card and the daily tile produces `Shelf Control #12 · 1:12 · 3 boxes` (plus `· try 2` when it took more than one) followed by the finished picture as an emoji grid. The system share sheet where there is one, the clipboard otherwise, a selectable box when even that is blocked.
@@ -31,7 +31,7 @@ Still by hand, per the plan's audit: safe-area insets, audio unlock and rubber-b
 
 ## Iteration 2 · slice 1 — Forty levels
 
-**Status:** test build. [PR #5](https://github.com/acoomes/shelf-control/pull/5) into `dev`, 2026-09-24; not yet shipped to `main`.
+**Status:** live. [PR #5](https://github.com/acoomes/shelf-control/pull/5) into `dev`, 2026-09-24. Shipped to `main` by [PR #9](https://github.com/acoomes/shelf-control/pull/9) on 2026-09-24 (`110dc11`).
 
 The first slice of the iteration that asks *do strangers come back?* It replaces the prototype's six hand-made levels with a curated set deep enough that returning is possible.
 

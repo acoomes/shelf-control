@@ -2,7 +2,7 @@
 
 One rule carries over from the prototype: each iteration answers one question, and the next iteration is only funded by the answer. What follows is a plan with gates, not a promise; the gates are the point.
 
-Where we stand on 2026-09-24: iteration 1 is live (the prototype, playtest fixes, auto-finish), and iteration 2's first slice (forty curated levels) is on the test build. `shelf-control-iteration-2-plan.md` remains the binding scope for iteration 2; this document only positions it and sketches what comes after.
+Where we stand on 2026-09-24: iteration 1 and iteration 2's three slices (forty curated levels, the daily and the home screen, telemetry) are live; what remains of iteration 2 is the people work below. `shelf-control-iteration-2-plan.md` remains the binding scope for iteration 2; this document only positions it and sketches what comes after.
 
 ---
 
