@@ -1198,10 +1198,12 @@ const Store = (() => {
     available: !!ls,
     get(k, def) { try { const v = ls ? ls.getItem(k) : mem[k]; return v == null ? def : JSON.parse(v); } catch (e) { return def; } },
     set(k, v) { const s = JSON.stringify(v); mem[k] = s; try { if (ls) ls.setItem(k, s); } catch (e) { /* storage blocked: keep in memory */ } },
+    remove(k) { delete mem[k]; try { if (ls) ls.removeItem(k); } catch (e) { /* ignore */ } },
+    keys(prefix) { try { return Object.keys(ls || mem).filter(k => k.startsWith(prefix)); } catch (e) { return []; } },
     clear() { for (const k of Object.keys(mem)) delete mem[k]; try { if (ls) for (const k of Object.keys(ls)) if (k.startsWith('sc.')) ls.removeItem(k); } catch (e) { /* ignore */ } },
   };
 })();
-const settings = Object.assign({ sound: CONFIG.sound, symbols: CONFIG.symbols, assist: CONFIG.assist, autoFinish: CONFIG.autoFinish, motion: 'auto', seenTips: {} }, Store.get('sc.settings', {}));
+const settings = Object.assign({ sound: CONFIG.sound, symbols: CONFIG.symbols, assist: CONFIG.assist, autoFinish: CONFIG.autoFinish, motion: 'auto', telemetry: true, seenTips: {} }, Store.get('sc.settings', {}));
 const progress = Object.assign({ done: {} }, Store.get('sc.progress', {}));
 const saveSettings = () => { Store.set('sc.settings', settings); applyMotionClass(); };
 const saveProgress = () => Store.set('sc.progress', progress);
@@ -1220,6 +1222,91 @@ const saveDaily = () => Store.set('sc.daily', daily);
 const standalone = (() => { try { return new URLSearchParams(location.search).get('standalone') === '1' || window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true; } catch (e) { return false; } })();
 const sessions = Object.assign({ count: 0, standalone: 0, a2hsDismissed: false, installed: null }, Store.get('sc.sessions', {}));
 sessions.count++; if (standalone) sessions.standalone++; Store.set('sc.sessions', sessions);
+
+// ------------------------------ TELEMETRY (plan §2.3) ------------------------------
+// Five events to PostHog over plain HTTP: no SDK on the page, no cookies, an anonymous device id in local storage, one project
+// with a `channel` property telling live from test. Events queue in storage and flush with keepalive fetches, so a session
+// played offline (the installed app) reports when the device is next online. Off from a file:// open, off via the settings
+// toggle, and the transport is replaceable so the browser suite can read what would have been sent. The key is a public
+// write-only project token.
+const TELEMETRY = { key: 'phc_xSXx3TjTHBMdD6NeX2g7TcqVs2fErApHk7yg8nazTLkM', host: 'https://us.i.posthog.com', batch: 50, keep: 200, lease: 15000 };
+const Telemetry = (() => {
+  const hex = (n) => { let out = ''; for (let i = 0; i < n; i++) out += ((Math.random() * 16) | 0).toString(16); return out; };
+  const uuid = () => { try { return crypto.randomUUID(); } catch (e) { return `${hex(8)}-${hex(4)}-4${hex(3)}-a${hex(3)}-${hex(12)}`; } };
+  // The device id is read from storage at each record, never held: two tabs on a first visit may each mint one, and the one
+  // that landed in storage is the one every event then carries, so a device's sessions never split across two identities.
+  const deviceId = () => { let d = Store.get('sc.device', null); if (typeof d !== 'string' || !d) { d = hex(16); Store.set('sc.device', d); } return d; };
+  const session = hex(8);
+  // The queue lives in storage, which the live build and /test/ share on one origin, as do two tabs of either. So storage is the
+  // truth, and each event is its own key, `sc.tq.<ms>.<uuid>`: an append is one write and an acknowledgement one removal, so two
+  // tabs recording or posting at the same instant cannot overwrite each other's edit of a shared list. The keys sort in time
+  // order, a short lease keeps two tabs from posting the same backlog at once, and the uuid lets PostHog drop a duplicate if a
+  // post is ever acknowledged twice.
+  const PREFIX = 'sc.tq.';
+  const keys = () => Store.keys(PREFIX).sort();
+  const load = () => keys().map(k => Store.get(k, null)).filter(e => e && e.uuid);
+  const put = (e, ms) => Store.set(PREFIX + String(ms).padStart(13, '0') + '.' + e.uuid, e);
+  const drop = (uuids) => { const s = new Set(uuids); for (const k of keys()) if (s.has(k.slice(k.lastIndexOf('.') + 1))) Store.remove(k); };
+  const trim = () => { const ks = keys(); for (const k of ks.slice(0, Math.max(0, ks.length - TELEMETRY.keep))) Store.remove(k); };
+  const clearAll = () => { for (const k of keys()) Store.remove(k); };
+  const leaseHeld = () => { const l = Store.get('sc.tqlock', null); return !!(l && l.owner !== session && l.until > Date.now()); };
+  const takeLease = () => Store.set('sc.tqlock', { owner: session, until: Date.now() + TELEMETRY.lease });
+  const dropLease = () => { const l = Store.get('sc.tqlock', null); if (l && l.owner === session) Store.set('sc.tqlock', null); };
+  const persistedOn = () => { const s = Store.get('sc.settings', null); return !(s && s.telemetry === false); };
+  const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+  const platform = /iPhone|iPad|iPod/.test(ua) ? 'ios' : /Android/.test(ua) ? 'android' : /Mobile/.test(ua) ? 'mobile' : 'desktop';
+  const browser = /Edg/.test(ua) ? 'edge' : /CriOS|Chrome/.test(ua) ? 'chrome' : /Firefox|FxiOS/.test(ua) ? 'firefox' : /Safari/.test(ua) ? 'safari' : 'other';
+  const base = () => ({ channel: BUILD.channel, devTools, standalone, platform, browser, $raw_user_agent: ua, lang: (typeof navigator !== 'undefined' && navigator.language) || '',
+    viewport: `${window.innerWidth}x${window.innerHeight}`, dpr: window.devicePixelRatio || 1, session, sessions: sessions.count, $lib: 'shelf-control', $lib_version: '2' });
+  let jsonMode = false;   // a text/plain post needs no CORS preflight; if the endpoint refuses it, the documented JSON form is used from then on
+  async function post(body) {
+    const text = JSON.stringify(body), url = TELEMETRY.host + '/batch/';
+    const send = (type) => fetch(url, { method: 'POST', headers: { 'Content-Type': type }, body: text, keepalive: true, mode: 'cors', credentials: 'omit' });
+    let r = await send(jsonMode ? 'application/json' : 'text/plain');
+    if (!r.ok && !jsonMode && r.status >= 400 && r.status < 500) { jsonMode = true; r = await send('application/json'); }
+    T.lastStatus = r.status; return r.ok;
+  }
+  const T = {
+    enabled: /^https?:$/.test(location.protocol) && !!TELEMETRY.key,
+    transport: null, flushing: false, sent: 0, lastStatus: null, lastError: null, session, get device() { return deviceId(); },
+    // The opt-out is one per origin: the persisted flag is consulted as well as this tab's copy, so a toggle in another tab
+    // (or on the other build) stops this one recording and posting at once, before the storage event has synced the settings.
+    on: () => settings.telemetry !== false && persistedOn(),
+    id: () => hex(8),
+    pending: () => keys().length,
+    queue: () => load(),
+    record(event, props) {
+      if (!T.on()) return null;
+      const now = Date.now(), device = deviceId();
+      const e = { uuid: uuid(), event, distinct_id: device, timestamp: new Date(now).toISOString(), properties: Object.assign(base(), props || {}, { distinct_id: device }) };
+      put(e, now); trim(); T.flush(); return e;
+    },
+    async flush() {
+      if (!T.enabled || T.flushing) return false;
+      if (!T.on()) { clearAll(); return false; }   // opted out, here or in another tab: whatever another tab queued meanwhile goes too
+      if (leaseHeld()) return false;
+      const batch = load().slice(0, TELEMETRY.batch); if (!batch.length) return false;
+      T.flushing = true; takeLease(); let ok = false;
+      try { ok = await (T.transport || post)({ api_key: TELEMETRY.key, batch }); T.lastError = null; } catch (e) { T.lastError = String((e && e.message) || e); }
+      if (ok) { drop(batch.map(e => e.uuid)); T.sent += batch.length; }
+      dropLease(); T.flushing = false;
+      if (ok && keys().length) T.flush();
+      return ok;
+    },
+    clear() { clearAll(); },
+  };
+  try {
+    window.addEventListener('online', () => T.flush());
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') T.flush(); });
+    // Settings are one per origin too: a change saved by another tab (the opt-out above all) becomes this tab's settings.
+    window.addEventListener('storage', (e) => {
+      if (e.key !== null && e.key !== 'sc.settings') return;
+      Object.assign(settings, Store.get('sc.settings', {})); applyMotionClass();
+      if (settings.telemetry === false) T.clear();
+    });
+  } catch (e) { /* no window */ }
+  return T;
+})();
 const mediaReduced = (() => { try { return window.matchMedia('(prefers-reduced-motion: reduce)'); } catch (e) { return { matches: false }; } })();
 const reducedMotion = () => (settings.motion === 'on' ? true : settings.motion === 'off' ? false : !!mediaReduced.matches);
 /** CSS animations (tutorial hand, tip fade) read the same preference through a root class. */
@@ -1657,7 +1744,7 @@ const Game = {
   sim: null, def: null, L: null, mode: 'build', actors: [], flight: [], blocks: [], settle: [], particles: [], texts: [], sweeps: [],
   present: [], rowDone: [], time: 0, playTime: 0, queue: [], lastDispatchAt: -10, combo: { step: -1, last: -10 },
   state: 'idle', stateT: 0, shelfFlash: 0, colNudge: [], graceHead: null, stuckT: 0, heartbeatT: 0, shiverT: 0, wave: -1,
-  continueUsed: false, lastDispatched: null, telemetry: [], fps: 60, extraDenied: 0, boxFx: [], winFired: false,
+  continueUsed: false, lastDispatched: null, telemetry: [], fps: 60, extraDenied: 0, boxFx: [], winFired: false, play: null,
   tut: {}, levelIndex: -1, initialFrontier: [],
 };
 
@@ -1689,6 +1776,8 @@ function startLevel(def, opts = {}) {
   G.def = def; G.mode = opts.mode || (def.reverse ? 'yoink' : 'build');
   if (G.mode === 'yoink' && !def.reverse) G.mode = 'build';         // baked lanes are only valid for build mode
   if (def.daily) { daily.attempts[def.daily.key] = (daily.attempts[def.daily.key] || 0) + 1; saveDaily(); }   // retries are allowed and counted (plan §2.2)
+  G.play = Telemetry.id();                                          // one play: its start, a continue if taken, and each ending share it
+  Telemetry.record('level_start', levelProps());
   G.sim = createSim(def, { mode: G.mode, trayCapacity: CONFIG.trayCapacity, shelfCapacity: CONFIG.shelfCapacity });
   G.L = computeLayout(G.sim);
   G.actors = G.sim.cats.map(makeActor);
@@ -1814,6 +1903,10 @@ function useContinue() {
   seatWaiting(r.seated, true);
   addText(DW / 2, 540, '+1 box', PALETTE.G.hex, 22, 1.2);
   Audio.relief();
+  // The acceptance is its own event: the failure it rescues was already reported (with continuesUsed 0, so it counts as an offer),
+  // and a player who continues and then leaves would otherwise never show. The take-rate is this over those offers.
+  Telemetry.record('level_continue', Object.assign(levelProps(), { reason: G.failReason, timeSec: Math.round(G.playTime * 10) / 10, dispatches: G.sim.stats.dispatches,
+    placedPct: Math.round((G.sim.placedCount() / G.sim.totalCells()) * 100) }));
   return true;
 }
 
@@ -2004,14 +2097,21 @@ function update(dt) {
   if (G.state === 'failing' && G.stateT >= 0.8) { G.state = 'failed'; finishLevel('failed', G.failReason); }
 }
 
+/** what identifies a level in an event: id, chapter number when curated, art, preset, mode, the daily's day and attempt, and the play */
+function levelProps() {
+  const G = Game, d = G.def.daily;
+  return { level: G.def.id, levelNo: G.levelIndex >= 0 ? G.levelIndex + 1 : null, art: G.def.artId || (G.def.id.startsWith('gen-') ? null : G.def.id), preset: G.def.preset || null,
+    seed: G.def.seed ?? null, mode: G.mode, daily: d ? d.n : null, attempt: d ? daily.attempts[d.key] || 1 : null, play: G.play };
+}
 function finishLevel(result, reason) {
   const G = Game, sim = G.sim, st = sim.stats;
   const rec = { level: G.def.id, art: G.def.artId || (G.def.id.startsWith('gen-') ? null : G.def.id), preset: G.def.preset || null, seed: G.def.seed ?? null, mode: G.mode,
     trayCapacity: sim.boxes.length - st.continuesUsed, shelfCapacity: sim.shelfCapacity, result, reason, timeSec: Math.round(G.playTime * 10) / 10,
     dispatches: st.dispatches, zeroPlaceDispatches: st.zeroPlaceDispatches, maxBoxesUsed: st.maxBoxesUsed, graceSaves: st.graceSaves, autoLoops: st.autoLoops,
     continuesUsed: st.continuesUsed, deniedTaps: st.deniedTaps + G.extraDenied,
-    daily: G.def.daily ? G.def.daily.n : null, attempt: G.def.daily ? daily.attempts[G.def.daily.key] || 1 : null, standalone };
+    daily: G.def.daily ? G.def.daily.n : null, attempt: G.def.daily ? daily.attempts[G.def.daily.key] || 1 : null, standalone, play: G.play };
   G.telemetry.push(rec); console.log('[shelf-control telemetry]', JSON.stringify(rec));
+  Telemetry.record('level_end', Object.assign(levelProps(), rec));
   if (result === 'won' && G.levelIndex >= 0) {                     // curated progress; generated and daily levels keep their own books
     const prev = progress.done[G.def.id];
     progress.done[G.def.id] = { timeSec: prev ? Math.min(prev.timeSec, rec.timeSec) : rec.timeSec, dispatches: rec.dispatches, when: Date.now() };
@@ -2390,13 +2490,14 @@ const UI = (() => {
   async function shareDaily(btn, k) {
     if (!daily.wins[k]) return;
     const was = btn.textContent; const r = await shareOrCopy(dailyShareText(k)); Game.lastShare = r;
+    Telemetry.record('daily_share', { daily: DAILY.number(Date.parse(k + 'T00:00:00Z')), method: r, attempts: daily.wins[k].attempts });
     if (r === 'copied') { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = was; }, 1500); }
   }
   // ---- add to home screen (plan §2.4): a hint after the second session, in a browser tab, until dismissed or installed ----
   let installPrompt = null;
   try {
     window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; if (!Game.sim) buildA2hs(); });
-    window.addEventListener('appinstalled', () => { sessions.installed = Date.now(); Store.set('sc.sessions', sessions); if (!Game.sim) buildA2hs(); });
+    window.addEventListener('appinstalled', () => { sessions.installed = Date.now(); sessions.installReported = true; Store.set('sc.sessions', sessions); Telemetry.record('install', { inferred: false }); if (!Game.sim) buildA2hs(); });
   } catch (e) { /* no window */ }
   function buildA2hs() {
     a2hs.innerHTML = '';
@@ -2522,6 +2623,7 @@ const UI = (() => {
     for (const [v, n] of [['auto', 'System'], ['on', 'Reduced'], ['off', 'Full']]) { const o = document.createElement('option'); o.value = v; o.textContent = n; if (settings.motion === v) o.selected = true; sel.appendChild(o); }
     sel.addEventListener('change', () => { settings.motion = sel.value; saveSettings(); });
     box.appendChild(toggleRow('Motion', sel));
+    box.appendChild(toggleRow('Anonymous play stats', checkbox(settings.telemetry !== false, v => { settings.telemetry = v; saveSettings(); if (!v) Telemetry.clear(); })));
     const row = el('div', 'row');
     if (devTools) row.appendChild(button('🐞 Debug', 'secondary', () => { closeModal(); toggleDebug(true); }));
     row.appendChild(button('Reset progress', 'secondary', () => { progress.done = {}; settings.seenTips = {}; Object.assign(daily, { attempts: {}, wins: {}, streak: 0, best: 0, lastWon: 0 }); Store.clear(); saveSettings(); saveProgress(); saveDaily(); Game.telemetry = []; currentChapter = null; closeModal(); if (!Game.sim) { buildDaily(); buildTiles(); } }));
@@ -2635,7 +2737,8 @@ const UI = (() => {
       dbgLive.textContent = `fps ${G.fps.toFixed(0)} · flight ${sim.inFlight.length}/${sim.shelfCapacity} · boxes ${sim.boxesUsed()}/${sim.boxes.length} · logical ${sim.placedCount()} / landed ${landed} of ${sim.totalCells()} · seed ${G.def.seed ?? '-'} · ${G.mode} · ${G.state}`;
     } else dbgLive.textContent = `fps ${G.fps.toFixed(0)} · no level`;
     if (dbgMode) { dbgMode.value = CONFIG.mode; dbgMode.disabled = !(G.def && G.def.id.startsWith('gen-')); }
-    if (dbgTele) dbgTele.textContent = `telemetry: ${G.telemetry.length} record(s)` + (G.telemetry.length ? ` · last: ${G.telemetry[G.telemetry.length - 1].result} ${G.telemetry[G.telemetry.length - 1].timeSec}s` : '');
+    if (dbgTele) dbgTele.textContent = `telemetry: ${G.telemetry.length} record(s)` + (G.telemetry.length ? ` · last: ${G.telemetry[G.telemetry.length - 1].result} ${G.telemetry[G.telemetry.length - 1].timeSec}s` : '')
+      + ` · posthog ${Telemetry.enabled ? `sent ${Telemetry.sent} · pending ${Telemetry.pending()}${Telemetry.lastStatus != null ? ' · http ' + Telemetry.lastStatus : ''}${Telemetry.lastError ? ' · ' + Telemetry.lastError : ''}` : 'off here'}`;
   }
   $('#btn-restart').addEventListener('click', () => { Audio.init(); restart(); });
   $('#btn-settings').addEventListener('click', () => { Audio.init(); if (modalOpen() && !levelOver()) closeModal(); else showSettings(); });
@@ -2711,7 +2814,10 @@ function boot() {
   if (devTools) $('#foot-label').textContent = 'test build';   // follows the override too, so ?debug=0 previews the live presentation
   // offline after the first load (plan §2.4): the worker caches this file and its icons; only over http(s), never from a file:// open
   try { if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('./sw.js').catch(() => {}); } catch (e) { /* ignore */ }
-  window.SC = { Game, CONFIG, LEVELS, GEN, createSim, startLevel, UI, tap: enqueueTap, hitTest, settings, Audio, view, useContinue, telemetry: () => Game.telemetry, BUILD, devTools, ARTS, DAILY, daily, sessions, standalone, drawIcon };
+  // plan §2.3: a session, and an install once, inferred on the first home-screen launch where the browser gives no event (iOS)
+  Telemetry.record('session_start', { referrer: (() => { try { return document.referrer ? new URL(document.referrer).host : ''; } catch (e) { return ''; } })() });
+  if (standalone && !sessions.installReported) { sessions.installReported = true; Store.set('sc.sessions', sessions); Telemetry.record('install', { inferred: true }); }
+  window.SC = { Game, CONFIG, LEVELS, GEN, createSim, startLevel, UI, tap: enqueueTap, hitTest, settings, Audio, view, useContinue, telemetry: () => Game.telemetry, BUILD, devTools, ARTS, DAILY, daily, sessions, standalone, drawIcon, Telemetry };
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();

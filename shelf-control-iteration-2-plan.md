@@ -34,9 +34,9 @@ Acceptance: two devices on the same date get the same level; share works on iOS 
 
 ### 2.3 Measurement that reaches you
 
-- Events: `session_start`, `level_start`, `level_end` (the existing telemetry record, which already carries dispatches, boxes, grace saves, continues, auto-loops), `daily_share`, `install`. An anonymous device id in local storage; no personal data.
-- Backend, your call (§6): PostHog free tier (fastest, funnels and retention for free) or a Cloudflare Worker with D1 (no third party, about a hundred lines). Recommendation: PostHog now; migrate only if it ever matters.
-- The dev channel reports to a separate project so playtests never pollute the live numbers.
+- Events: `session_start`, `level_start`, `level_end` (the existing telemetry record, which already carries dispatches, boxes, grace saves, continues, auto-loops), `level_continue` (the "+1 box" accepted: the failure that offered it is already a `level_end`, so the take-rate is accepted over offered, and a `play` id links the two), `daily_share`, `install`. An anonymous device id in local storage; no personal data.
+- Backend, your call (§6): PostHog free tier (fastest, funnels and retention for free) or a Cloudflare Worker with D1 (no third party, about a hundred lines). Recommendation: PostHog now; migrate only if it ever matters. (Decided 2026-09-24: PostHog, US cloud, over plain HTTP with no SDK on the page.)
+- The two channels report to one project with a `channel` property on every event, filtered in each insight; one login, no second project to keep in step. (Revised from the separate project first written here.)
 
 Acceptance: a dashboard showing D1/D7 return, the start-to-win/fail funnel per level, auto-finish usage and continue take-rate.
 

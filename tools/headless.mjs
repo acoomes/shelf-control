@@ -7,6 +7,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -334,6 +336,27 @@ console.log('\n== service worker (plan §2.4) ==');
   ok(live.deleted.length === 1 && live.deleted[0] === 'shelf-control-_shelf_control_-aaa1111', `the live worker retires only its own scope's older cache (${live.deleted.join(', ')})`);
   const test = runWorker('/shelf-control/test/', 'ddd4444'); await test.activate();
   ok(test.deleted.length === 1 && test.deleted[0] === 'shelf-control-_shelf_control_test_-bbb2222', `the /test/ worker retires only its own scope's older cache (${test.deleted.join(', ')})`);
+}
+
+console.log('\n== deploy assembly (tools/assemble.sh) ==');
+{
+  const root = path.join(here, '..'), tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sc-assemble-'));
+  let failed = null;
+  try { execFileSync('bash', [path.join(root, 'tools', 'assemble.sh'), root, path.join(tmp, 'live'), 'live'], { stdio: 'pipe' }); execFileSync('bash', [path.join(root, 'tools', 'assemble.sh'), root, path.join(tmp, 'test'), 'test'], { stdio: 'pipe' }); }
+  catch (e) { failed = String(e.stderr || e.message); }
+  ok(!failed, `both builds assemble${failed ? ': ' + failed.slice(0, 200) : ''}`);
+  if (!failed) {
+    const live = fs.readFileSync(path.join(tmp, 'live', 'index.html'), 'utf8'), test = fs.readFileSync(path.join(tmp, 'test', 'index.html'), 'utf8');
+    ok(/^const BUILD = \{ channel: 'live' \};$/m.test(live) && !/channel: 'dev'/.test(live) && /^const BUILD = \{ channel: 'dev' \};$/m.test(test), 'the live build flips the channel line; the test build keeps the dev channel');
+    ok(/content="Shelf Control">/.test(live) && /content="SC test">/.test(test), 'the test build carries the SC test Apple title, the live build the real one');
+    const lm = JSON.parse(fs.readFileSync(path.join(tmp, 'live', 'manifest.webmanifest'), 'utf8')), tm = JSON.parse(fs.readFileSync(path.join(tmp, 'test', 'manifest.webmanifest'), 'utf8'));
+    ok(lm.name === 'Shelf Control' && tm.name === 'Shelf Control (test)' && tm.short_name === 'SC test', 'the test manifest is renamed, the live one is not');
+    const ver = (d) => (/^const VERSION = '([^']+)';$/m.exec(fs.readFileSync(path.join(tmp, d, 'sw.js'), 'utf8')) || [])[1];
+    ok(ver('live') && ver('live') !== 'dev' && ver('test') === ver('live'), `the worker's cache version is stamped (${ver('live')})`);
+    ok(['icon-192.png', 'icon-512.png', 'maskable-512.png', 'apple-touch-icon.png'].every(f => fs.existsSync(path.join(tmp, 'test', 'icons', f))), 'the icons ship with the build');
+    { let threw = false; try { execFileSync('bash', [path.join(root, 'tools', 'assemble.sh'), root, path.join(tmp, 'bad'), 'staging'], { stdio: 'pipe' }); } catch (e) { threw = true; } ok(threw, 'an unknown channel is refused'); }
+  }
+  fs.rmSync(tmp, { recursive: true, force: true });
 }
 
 console.log(`\n${failures === 0 ? 'ALL PASS' : failures + ' FAILURE(S)'}`);

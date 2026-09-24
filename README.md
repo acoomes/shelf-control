@@ -19,7 +19,7 @@ Keys on desktop: `D` toggles the debug overlay, `R` restarts, `Esc` closes dialo
 | `main` | `https://<owner>.github.io/shelf-control/` | off |
 | `dev` | `https://<owner>.github.io/shelf-control/test/` | on, and the level select says *test build* |
 
-Shipping is a merge from `dev` into `main`. The repository's *Pages* source is *GitHub Actions* (set on 2026-09-24; with the older branch source GitHub's own build raced the workflow and `/test/` came and went). Until a `dev` branch exists, `/test/` mirrors `main`. The `github-pages` environment only accepts deployments from `main`, so a push to `dev` does not deploy by itself: it dispatches the `main` copy of the workflow, which publishes both builds. Each build ships with its installable-app files (see below); the deploy stamps the commit into the service worker's cache version and names the test build's app *Shelf Control (test)* (home-screen label *SC test*, in the manifest and in the Apple title meta that iOS reads instead) so the two can be installed side by side.
+Shipping is a merge from `dev` into `main`. The repository's *Pages* source is *GitHub Actions* (set on 2026-09-24; with the older branch source GitHub's own build raced the workflow and `/test/` came and went). Until a `dev` branch exists, `/test/` mirrors `main`. The `github-pages` environment only accepts deployments from `main`, so a push to `dev` does not deploy by itself: it dispatches the `main` copy of the workflow, which publishes both builds. Each build is assembled by `tools/assemble.sh` from its own branch: `index.html` with its channel set, the installable-app files (see below) with the commit stamped into the service worker's cache version, and the test build renamed *Shelf Control (test)* (home-screen label *SC test*, in the manifest and in the Apple title meta that iOS reads instead) so the two can be installed side by side. Every rewrite is guarded, and the headless suite runs the script for both channels, so a packaging change on `dev` is tested before it reaches `/test/` and needs no ship to get there.
 
 The two builds are the same file. The source is the dev channel; the deploy rewrites the single line `const BUILD = { channel: 'dev' };` to `'live'` for the root URL and fails if that line is not found. Developer tools are the debug overlay (settings → 🐞 Debug, or `D`), the seed field in the generated chooser, and the *test build* label; without the seed field every *Generate* draws a fresh seed. `?debug=1` turns all of them on for any URL and `?debug=0` turns them off, which is how to preview the live build from a local file.
 
@@ -31,6 +31,21 @@ One generated level per UTC date, the same on every device: the art rotates thro
 
 `manifest.webmanifest`, icons in `icons/` (rendered from the game's own cat routine by `node tools/icons.mjs`; re-run it if `drawIcon` changes), and `sw.js`, a service worker that caches the single file and its icons, network first so a deploy lands on the next online load and cache when offline. The worker registers only over http(s), never from a `file://` open, so the browser suite runs without it. After the second session in a browser tab the level select shows a one-line *add to home screen* hint (Chrome's install prompt where the browser offers one, the Share-sheet route on iOS) until it is dismissed or the app is installed. A launch from the home screen arrives at `./?standalone=1`, counts as a standalone session and carries `standalone: true` in every telemetry record. Still to do by hand on devices, per the plan's audit: safe-area insets, audio unlock in standalone mode, rubber-banding, orientation.
 
+## Telemetry
+
+Plan §2.3: six events go to PostHog (one project, US cloud) over plain HTTP. No PostHog script on the page, no cookies, no consent banner: an anonymous device id in local storage is the only identity, the project token in `TELEMETRY` is a public write-only key, and a `channel` property (`live` or `dev`) tells the two builds apart in every insight. Events queue in local storage, one key per event so two tabs on the origin never overwrite each other's appends, and flush with keepalive fetches, so a session played offline in the installed app reports when the device is next online; the queue keeps the latest 200. Nothing is sent from a `file://` open (the browser suite swaps in a recording transport), and *Anonymous play stats* in settings turns it off and drops the queue, in every tab on the origin at once (the flag is read from storage before each record and flush, and the `storage` event syncs the setting itself). The debug overlay shows `posthog sent N · pending M · http S`.
+
+| event | when | properties beyond the common set |
+|---|---|---|
+| `session_start` | every boot | `referrer` (host only) |
+| `level_start` | every level start, retries included | `level`, `levelNo` (curated only), `art`, `preset`, `seed`, `mode`, `daily`, `attempt`, `play` (an id shared by every event of that play) |
+| `level_end` | win or fail | the level properties plus the play record: `result`, `reason`, `timeSec`, `dispatches`, `maxBoxesUsed`, `graceSaves`, `autoLoops`, `continuesUsed`, `deniedTaps`, `trayCapacity`, `shelfCapacity`, `standalone` |
+| `level_continue` | *+1 box and continue* accepted | the level properties plus `reason` (the failure it rescued), `timeSec`, `dispatches`, `placedPct` |
+| `daily_share` | Share pressed on a daily result | `daily`, `method` (`shared`, `copied`, `shown`, `cancelled`), `attempts` |
+| `install` | Chrome's `appinstalled`, or inferred on the first home-screen launch on iOS | `inferred` |
+
+Common properties: `channel`, `devTools`, `standalone`, `platform`, `browser`, `$raw_user_agent`, `lang`, `viewport`, `dpr`, `session` (per page load), `sessions` (this device's count). The insights the plan asks for, in PostHog: **retention** with `session_start` as both the cohort and the returning event, daily, read at day 1 and day 7, filtered to `channel = live`; **the level funnel** as `level_start` → `level_end` where `result = won`, broken down by `levelNo`; **continue take-rate** as `level_continue` over `level_end` where `result = failed` and `continuesUsed = 0` (every such failure offered the button; a continued play that fails again reports a second `level_end` with `continuesUsed = 1`, so a play's outcome is its last `level_end` by `play`); **daily** as `level_end` where `daily` is set, plus `daily_share`. Turn on *Discard client IP data* in the project settings if you would rather not hold IPs at all.
+
 ## Test it
 
 ```
@@ -39,6 +54,7 @@ node tools/e2e.mjs               # Playwright scenarios in a real Chromium (fake
 node tools/perf.mjs              # frame times per phase under 4x CPU throttling, plus a CPU profile of a parade
 node tools/curate.mjs            # re-bake the 40-level set from the arts table (≈2 min); --dry prints the curve without writing
 node tools/icons.mjs             # re-render the app icons from the game's cat routine
+tools/assemble.sh . out/live live    # assemble a build the way the deploy does (also: out/test test)
 ```
 
 The headless suite needs only Node. The other two need Playwright: `npm install` (it is the only devDependency) or a global `npm install -g playwright`, then `npx playwright install chromium`. `npm test` and `npm run e2e` are shorthands.

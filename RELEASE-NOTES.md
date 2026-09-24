@@ -4,6 +4,17 @@ Two builds from one file: **live** at `https://andrewcoomes.com/shelf-control/` 
 
 ---
 
+## Iteration 2 · slice 3 (part 1) — Measurement that reaches you
+
+**Status:** test build, into `dev` on 2026-09-24; not yet shipped to `main`.
+
+- **Telemetry to PostHog.** Six events over plain HTTP: `session_start`, `level_start`, `level_end` (the play record the game already kept), `level_continue` (the *+1 box* accepted, with the failure it rescued, so the take-rate is accepted over offered), `daily_share` and `install`. A `play` id ties a level's start, its continue and its endings together. No PostHog script on the page, no cookies, an anonymous device id as the only identity, and a `channel` property that tells the live build from the test build in one project. Events queue in local storage and flush with keepalive fetches, so a session played offline in the installed app reports when the device is next online. *Anonymous play stats* in settings turns it off, in every open tab at once. The debug overlay shows what was sent and what is pending.
+- **Packaging by branch.** The deploy now assembles each build with that branch's own `tools/assemble.sh`, so a change to the installable-app files on `dev` reaches `/test/` without a ship; the headless suite runs the script for both channels.
+
+The rest of slice 3 is people work: the stranger playtest with the portal listing, and H1 and H3 answered in writing.
+
+---
+
 ## Iteration 2 · slice 2 — The daily, the share and the home screen
 
 **Status:** test build, into `dev` on 2026-09-24; not yet shipped to `main`.
