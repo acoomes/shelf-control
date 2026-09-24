@@ -28,6 +28,55 @@ const viz = (source) => ({ kind: 'InsightVizNode', source });
 
 const retention = (target, returning) => viz({ kind: 'RetentionQuery', dateRange: range, properties: [live],
   retentionFilter: { retentionType: 'retention_first_time', period: 'Day', totalIntervals: 8, targetEntity: target, returningEntity: returning } });
+// Two questions need a row per play or per player rather than a count of events, which property filters cannot express:
+// a play's terminal outcome (a continued play reports two endings) and a player's mode (daily only, chapters only, both).
+// Those are SQL insights over the events table (HogQL), editable in place if a column needs changing.
+const sql = (query) => ({ kind: 'DataTableNode', full: true, source: { kind: 'HogQLQuery', query: query.trim() } });
+const LEVEL_OUTCOMES = `
+SELECT levelNo,
+  count() AS started,
+  countIf(outcome = 'won') AS won,
+  countIf(outcome = 'failed') AS failed,
+  count() - countIf(outcome = 'won') - countIf(outcome = 'failed') AS abandoned,
+  round(100 * countIf(outcome = 'won') / count(), 1) AS win_pct
+FROM (
+  SELECT properties.play AS play,
+    max(toInt64OrNull(toString(properties.levelNo))) AS levelNo,
+    argMax(properties.result, if(event = 'level_end', timestamp, toDateTime(0))) AS outcome
+  FROM events
+  WHERE properties.channel = 'live' AND event IN ('level_start', 'level_end')
+    AND properties.levelNo IS NOT NULL AND properties.play IS NOT NULL AND timestamp > now() - INTERVAL 30 DAY
+  GROUP BY play
+)
+GROUP BY levelNo ORDER BY levelNo`;
+const MODE_COHORTS = `
+SELECT
+  multiIf(daily AND NOT chapters, 'daily only', chapters AND NOT daily, 'chapters only', chapters AND daily, 'both', 'sessions only') AS cohort,
+  count() AS players,
+  countIf(first_day <= today() - 1) AS d1_base,
+  if(countIf(first_day <= today() - 1) = 0, 0, round(100 * countIf(d1 = 1) / countIf(first_day <= today() - 1), 1)) AS d1_pct,
+  countIf(first_day <= today() - 7) AS d7_base,
+  if(countIf(first_day <= today() - 7) = 0, 0, round(100 * countIf(d7 = 1) / countIf(first_day <= today() - 7), 1)) AS d7_pct
+FROM (
+  SELECT p.distinct_id AS distinct_id, p.first_day AS first_day, p.chapters AS chapters, p.daily AS daily,
+    max(if(s.day = p.first_day + 1, 1, 0)) AS d1,
+    max(if(s.day = p.first_day + 7, 1, 0)) AS d7
+  FROM (
+    SELECT distinct_id, min(toDate(timestamp)) AS first_day,
+      countIf(event = 'level_start' AND properties.levelNo IS NOT NULL) > 0 AS chapters,
+      countIf(event = 'level_start' AND properties.daily IS NOT NULL) > 0 AS daily
+    FROM events
+    WHERE properties.channel = 'live' AND event IN ('session_start', 'level_start') AND timestamp > now() - INTERVAL 60 DAY
+    GROUP BY distinct_id
+  ) AS p
+  LEFT JOIN (
+    SELECT distinct_id, toDate(timestamp) AS day FROM events
+    WHERE properties.channel = 'live' AND event = 'session_start' AND timestamp > now() - INTERVAL 60 DAY
+    GROUP BY distinct_id, day
+  ) AS s ON s.distinct_id = p.distinct_id
+  GROUP BY p.distinct_id, p.first_day, p.chapters, p.daily
+)
+GROUP BY cohort ORDER BY players DESC`;
 const INSIGHTS = [
   ...(PORTAL_HOSTS.length ? [{
     name: 'Retention: portal cohort (the gate)',
@@ -40,14 +89,19 @@ const INSIGHTS = [
     query: retention({ id: 'session_start', type: 'events' }, { id: 'session_start', type: 'events' }),
   },
   {
-    name: 'Retention: came back for the chapters',
-    description: 'Same cohort, but a return only counts if the player started a curated level that day. Read against the daily variant: the roadmap warns the daily can flatter D1 while the curve decides D7.',
-    query: retention({ id: 'session_start', type: 'events' }, { id: 'level_start', type: 'events', properties: [prop('levelNo', 'is_set')] }),
+    name: 'Retention: chapter players',
+    description: 'Cohort: players by the day of their first curated-level play. Return: any later session. Read against the daily players\' curve: the roadmap warns the daily can flatter D1 while the curve decides D7. A player who does both is in both cohorts; the mode table below separates them.',
+    query: retention({ id: 'level_start', type: 'events', properties: [prop('levelNo', 'is_set')] }, { id: 'session_start', type: 'events' }),
   },
   {
-    name: 'Retention: came back for the daily',
-    description: 'Same cohort, a return counted only when the player started that day\'s daily.',
-    query: retention({ id: 'session_start', type: 'events' }, { id: 'level_start', type: 'events', properties: [prop('daily', 'is_set')] }),
+    name: 'Retention: daily players',
+    description: 'Cohort: players by the day of their first daily play. Return: any later session.',
+    query: retention({ id: 'level_start', type: 'events', properties: [prop('daily', 'is_set')] }, { id: 'session_start', type: 'events' }),
+  },
+  {
+    name: 'Retention by mode: daily only, chapters only, both',
+    description: 'Each new live player in exactly one cohort by what they have played, with D1 and D7 as a share of the players old enough to have had that day. This is the roadmap\'s daily-only versus chapter comparison; the two retention curves above overlap, this table does not.',
+    query: sql(MODE_COHORTS),
   },
   {
     name: 'Level funnel: start to win, by level',
@@ -58,12 +112,9 @@ const INSIGHTS = [
       funnelsFilter: { funnelVizType: 'steps', funnelWindowInterval: 1, funnelWindowIntervalUnit: 'hour', funnelAggregateByHogQL: 'properties.play' } }),
   },
   {
-    name: 'Level outcomes by level: started, won, failed',
-    description: 'Per level number, plays started, plays won and plays that ended in a loss (both endings of a continued play count). Started minus won minus failed is the abandoned play: a player who left mid-level, which the funnel alone cannot tell from a loss.',
-    query: viz({ kind: 'TrendsQuery', dateRange: range, properties: [live], interval: 'day',
-      series: [ev('level_start', [prop('levelNo', 'is_set')]), ev('level_end', [prop('levelNo', 'is_set'), prop('result', 'exact', 'won')]), ev('level_end', [prop('levelNo', 'is_set'), prop('result', 'exact', 'failed')])],
-      breakdownFilter: { breakdown: 'levelNo', breakdown_type: 'event', breakdown_limit: 40 },
-      trendsFilter: { display: 'ActionsTable' } }),
+    name: 'Level outcomes by level: started, won, failed, abandoned',
+    description: 'One row per level number, one count per play: its terminal outcome is the last level_end it reported, so a continued play counts once, as whatever it ended on. Abandoned is a play with no ending at all: the player left mid-level, which the funnel alone cannot tell from a loss.',
+    query: sql(LEVEL_OUTCOMES),
   },
   {
     name: 'Auto-finish: share of wins it played out',
@@ -116,7 +167,7 @@ async function main() {
   if (DRY) {
     console.log(`dry run: would apply to ${HOST}\n`);
     console.log(`dashboard "${DASHBOARD.name}"`);
-    for (const i of INSIGHTS) console.log(`\n${i.name}\n  ${i.description}\n  ${JSON.stringify(i.query.source)}`);
+    for (const i of INSIGHTS) console.log(`\n${i.name}\n  ${i.description}\n  ${i.query.source.kind === 'HogQLQuery' ? i.query.source.query : JSON.stringify(i.query.source)}`);
     console.log('\nproject: anonymize_ips = true');
     return;
   }
