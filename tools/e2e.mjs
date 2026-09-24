@@ -418,21 +418,21 @@ const scenarios = {
     ok((await api.page.evaluate(() => { const p = JSON.parse(localStorage.getItem('sc.progress') || '{"done":{}}'); return Object.keys(p.done).length === 0; })), 'the daily never writes into the chapter progress');
   },
   async dailyStale(api) {
-    // a stored daily result belongs to the puzzle it was earned on: when the day's puzzle changes, the result is dropped rather than shown against the new one, and the streak steps back a day
-    const { k, n } = await api.page.evaluate(() => ({ k: SC.DAILY.key(Date.now()), n: SC.DAILY.number(Date.now()) }));
-    await api.page.evaluate(([k, n]) => localStorage.setItem('sc.daily', JSON.stringify({ attempts: { [k]: 2 }, wins: { [k]: { timeSec: 23, dispatches: 21, boxes: 2, attempts: 2, layout: 'ffffff' } }, streak: 3, best: 3, lastWon: n })), [k, n]);
-    const p2 = await api.page.context().newPage(); p2.on('pageerror', e => api.errors.push(e.message)); await p2.goto(PAGE_URL);
-    await p2.waitForFunction((k) => window.SC && !JSON.parse(localStorage.getItem('sc.daily')).wins[k], k, { timeout: 20000 });
-    const s = await p2.evaluate(() => ({ d: JSON.parse(localStorage.getItem('sc.daily')), tile: document.querySelectorAll('#daily .tile .meta')[1].textContent, share: !!document.querySelector('#daily .tile .share') }));
-    await p2.close();
+    // a stored daily result belongs to the puzzle it was earned on: when the day's puzzle changes, the result is dropped rather than shown
+    // against the new one, and the streak steps back a day. Same page, reloaded: the fake clock is context-wide and paused, so a second
+    // page's timers would never fire; here api.run drives the boot and the reconcile timer.
+    const { page } = api;
+    const { k, n } = await page.evaluate(() => ({ k: SC.DAILY.key(Date.now()), n: SC.DAILY.number(Date.now()) }));
+    await page.evaluate(([k, n]) => localStorage.setItem('sc.daily', JSON.stringify({ attempts: { [k]: 2 }, wins: { [k]: { timeSec: 23, dispatches: 21, boxes: 2, attempts: 2, layout: 'ffffff' } }, streak: 3, best: 3, lastWon: n })), [k, n]);
+    await page.reload(); await api.run(400);
+    const s = await page.evaluate(() => ({ d: JSON.parse(localStorage.getItem('sc.daily')), tile: document.querySelectorAll('#daily .tile .meta')[1].textContent, share: !!document.querySelector('#daily .tile .share') }));
     ok(!s.d.wins[k] && !s.d.attempts[k], `a result earned on a different layout is dropped for ${k}`);
     ok(s.d.streak === 2 && s.d.lastWon === n - 1 && s.d.best === 3, `the streak steps back to the day before (streak ${s.d.streak}, lastWon ${s.d.lastWon}, best ${s.d.best})`);
     ok(/Not played yet/.test(s.tile) && /2-day streak/.test(s.tile) && !s.share, `the tile offers the new puzzle with the surviving streak (${s.tile})`);
     // a matching record is left alone
-    await api.page.evaluate(([k, n]) => { const d = SC.DAILY.def(Date.now()); localStorage.setItem('sc.daily', JSON.stringify({ attempts: { [k]: 1 }, wins: { [k]: { timeSec: 61, dispatches: 30, boxes: 3, attempts: 1, layout: d.daily.layout } }, streak: 1, best: 1, lastWon: n })); }, [k, n]);
-    const p3 = await api.page.context().newPage(); p3.on('pageerror', e => api.errors.push(e.message)); await p3.goto(PAGE_URL); await p3.waitForFunction(() => window.SC); await p3.waitForTimeout(1500);
-    const s3 = await p3.evaluate(() => ({ kept: !!JSON.parse(localStorage.getItem('sc.daily')).wins[SC.DAILY.key(Date.now())], tile: document.querySelectorAll('#daily .tile .meta')[1].textContent }));
-    await p3.close();
+    await page.evaluate(([k, n]) => { const d = SC.DAILY.def(Date.now()); localStorage.setItem('sc.daily', JSON.stringify({ attempts: { [k]: 1 }, wins: { [k]: { timeSec: 61, dispatches: 30, boxes: 3, attempts: 1, layout: d.daily.layout } }, streak: 1, best: 1, lastWon: n })); }, [k, n]);
+    await page.reload(); await api.run(400);
+    const s3 = await page.evaluate(() => ({ kept: !!JSON.parse(localStorage.getItem('sc.daily')).wins[SC.DAILY.key(Date.now())], tile: document.querySelectorAll('#daily .tile .meta')[1].textContent }));
     ok(s3.kept && /Done in 1:01/.test(s3.tile), `a result on the current layout stays (${s3.tile})`);
   },
   async pwa(api) {
