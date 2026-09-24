@@ -44,7 +44,16 @@ Plan §2.3: six events go to PostHog (one project, US cloud) over plain HTTP. No
 | `daily_share` | Share pressed on a daily result | `daily`, `method` (`shared`, `copied`, `shown`, `cancelled`), `attempts` |
 | `install` | Chrome's `appinstalled`, or inferred on the first home-screen launch on iOS | `inferred` |
 
-Common properties: `channel`, `devTools`, `standalone`, `platform`, `browser`, `$raw_user_agent`, `lang`, `viewport`, `dpr`, `session` (per page load), `sessions` (this device's count). The insights the plan asks for, in PostHog: **retention** with `session_start` as both the cohort and the returning event, daily, read at day 1 and day 7, filtered to `channel = live`; **the level funnel** as `level_start` → `level_end` where `result = won`, broken down by `levelNo`; **continue take-rate** as `level_continue` over `level_end` where `result = failed` and `continuesUsed = 0` (every such failure offered the button; a continued play that fails again reports a second `level_end` with `continuesUsed = 1`, so a play's outcome is its last `level_end` by `play`); **daily** as `level_end` where `daily` is set, plus `daily_share`. Turn on *Discard client IP data* in the project settings if you would rather not hold IPs at all.
+Common properties: `channel`, `devTools`, `standalone`, `platform`, `browser`, `$raw_user_agent`, `lang`, `viewport`, `dpr`, `session` (per page load), `sessions` (this device's count).
+
+**The dashboard is code.** `tools/posthog.mjs` creates (or updates in place) a *Shelf Control* dashboard with the insights the plan asks for, every one filtered to `channel = live`, and turns on *Discard client IP data* for the project. It needs a personal API key (Settings → User → Personal API keys) with the scopes `insight:write`, `dashboard:write`, `project:read` and `project:write`:
+
+```
+POSTHOG_API_KEY=phx_... node tools/posthog.mjs     # apply; re-run after editing the script
+node tools/posthog.mjs --dry-run                   # print the insight queries, no key needed
+```
+
+What it defines: **retention** on `session_start` (first-time cohort, day 1 to day 7), plus two variants whose return event is a chapter play or a daily play, because the roadmap warns the daily can flatter D1 while the curve decides D7; **the level funnel** `level_start` → `level_end` where `result = won`, broken down by `levelNo` and aggregated by `play` so a retry is its own play; **the continue take-rate** with its three underlying counts; **the daily** (plays, wins, shares); and sessions, devices a day and installs. The same recipes by hand, in PostHog: **retention** with `session_start` as both the cohort and the returning event, daily, read at day 1 and day 7, filtered to `channel = live`; **the level funnel** as `level_start` → `level_end` where `result = won`, broken down by `levelNo`; **continue take-rate** as `level_continue` over `level_end` where `result = failed` and `continuesUsed = 0` (every such failure offered the button; a continued play that fails again reports a second `level_end` with `continuesUsed = 1`, so a play's outcome is its last `level_end` by `play`); **daily** as `level_end` where `daily` is set, plus `daily_share`. Turn on *Discard client IP data* in the project settings if you would rather not hold IPs at all.
 
 ## Test it
 
