@@ -49,39 +49,58 @@ FROM (
   GROUP BY play
 )
 GROUP BY levelNo ORDER BY levelNo`;
-const MODE_COHORTS = `
-SELECT
-  multiIf(daily AND NOT chapters, 'daily only', chapters AND NOT daily, 'chapters only', chapters AND daily, 'both', 'sessions only') AS cohort,
+// A cohort retention table. Each device's first live session comes from its complete history (never a rolling window, or
+// an old player whose first session aged out would be minted as new), what a player is counted as is frozen on that first
+// day (never re-classified by what they did later, which would move retained crossovers between cohorts), and only the
+// reporting cohort is date-bounded. D1 and D7 are shares of the players old enough to have had that day.
+const retentionTable = (cohortExpr) => `
+WITH firsts AS (
+  SELECT distinct_id, min(toDate(timestamp)) AS first_day, argMin(properties.referrer, timestamp) AS first_referrer
+  FROM events
+  WHERE properties.channel = 'live' AND event = 'session_start'
+  GROUP BY distinct_id
+),
+day0 AS (
+  SELECT e.distinct_id AS distinct_id,
+    countIf(e.properties.levelNo IS NOT NULL) > 0 AS chapters,
+    countIf(e.properties.daily IS NOT NULL) > 0 AS daily
+  FROM events AS e
+  JOIN firsts AS f ON f.distinct_id = e.distinct_id
+  WHERE e.properties.channel = 'live' AND e.event = 'level_start' AND toDate(e.timestamp) = f.first_day
+  GROUP BY e.distinct_id
+),
+returns AS (
+  SELECT distinct_id, toDate(timestamp) AS day
+  FROM events
+  WHERE properties.channel = 'live' AND event = 'session_start'
+  GROUP BY distinct_id, day
+),
+players AS (
+  SELECT f.distinct_id AS distinct_id, f.first_day AS first_day, f.first_referrer AS first_referrer,
+    coalesce(d.chapters, 0) AS chapters, coalesce(d.daily, 0) AS daily,
+    max(if(r.day = f.first_day + 1, 1, 0)) AS d1,
+    max(if(r.day = f.first_day + 7, 1, 0)) AS d7
+  FROM firsts AS f
+  LEFT JOIN day0 AS d ON d.distinct_id = f.distinct_id
+  LEFT JOIN returns AS r ON r.distinct_id = f.distinct_id
+  WHERE f.first_day >= today() - 30
+  GROUP BY f.distinct_id, f.first_day, f.first_referrer, d.chapters, d.daily
+)
+SELECT ${cohortExpr} AS cohort,
   count() AS players,
   countIf(first_day <= today() - 1) AS d1_base,
   if(countIf(first_day <= today() - 1) = 0, 0, round(100 * countIf(d1 = 1) / countIf(first_day <= today() - 1), 1)) AS d1_pct,
   countIf(first_day <= today() - 7) AS d7_base,
   if(countIf(first_day <= today() - 7) = 0, 0, round(100 * countIf(d7 = 1) / countIf(first_day <= today() - 7), 1)) AS d7_pct
-FROM (
-  SELECT p.distinct_id AS distinct_id, p.first_day AS first_day, p.chapters AS chapters, p.daily AS daily,
-    max(if(s.day = p.first_day + 1, 1, 0)) AS d1,
-    max(if(s.day = p.first_day + 7, 1, 0)) AS d7
-  FROM (
-    SELECT distinct_id, min(toDate(timestamp)) AS first_day,
-      countIf(event = 'level_start' AND properties.levelNo IS NOT NULL) > 0 AS chapters,
-      countIf(event = 'level_start' AND properties.daily IS NOT NULL) > 0 AS daily
-    FROM events
-    WHERE properties.channel = 'live' AND event IN ('session_start', 'level_start') AND timestamp > now() - INTERVAL 60 DAY
-    GROUP BY distinct_id
-  ) AS p
-  LEFT JOIN (
-    SELECT distinct_id, toDate(timestamp) AS day FROM events
-    WHERE properties.channel = 'live' AND event = 'session_start' AND timestamp > now() - INTERVAL 60 DAY
-    GROUP BY distinct_id, day
-  ) AS s ON s.distinct_id = p.distinct_id
-  GROUP BY p.distinct_id, p.first_day, p.chapters, p.daily
-)
+FROM players
 GROUP BY cohort ORDER BY players DESC`;
+const MODE_COHORTS = retentionTable(`multiIf(daily AND NOT chapters, 'daily only', chapters AND NOT daily, 'chapters only', chapters AND daily, 'both', 'sessions only')`);
+const PORTAL_COHORT = () => retentionTable(`if(first_referrer IN (${PORTAL_HOSTS.map(h => `'${h.replace(/'/g, "\\'")}'`).join(', ')}), 'portal', 'elsewhere')`);
 const INSIGHTS = [
   ...(PORTAL_HOSTS.length ? [{
     name: 'Retention: portal cohort (the gate)',
-    description: `Players whose first session was referred from ${PORTAL_HOSTS.join(' or ')}, and whether they open the game again on each of the next seven days. The iteration 2 gate: D1 at or above 25 % and D7 at or above 8 % here.`,
-    query: retention({ id: 'session_start', type: 'events', properties: [prop('referrer', 'exact', PORTAL_HOSTS)] }, { id: 'session_start', type: 'events' }),
+    description: `New players whose first ever live session was referred from ${PORTAL_HOSTS.join(' or ')}, against everyone else, with D1 and D7 as a share of the players old enough to have had that day. The iteration 2 gate: D1 at or above 25 % and D7 at or above 8 % on the portal row. The first session is taken from complete history, so a player who arrived from elsewhere first and found the portal later is not in the row.`,
+    query: sql(PORTAL_COHORT()),
   }] : []),
   {
     name: 'Retention: all live players, day 1 to day 7',
@@ -100,7 +119,7 @@ const INSIGHTS = [
   },
   {
     name: 'Retention by mode: daily only, chapters only, both',
-    description: 'Each new live player in exactly one cohort by what they have played, with D1 and D7 as a share of the players old enough to have had that day. This is the roadmap\'s daily-only versus chapter comparison; the two retention curves above overlap, this table does not.',
+    description: 'Each new live player in exactly one cohort by what they played on their first day (frozen there: a daily player who tries the chapters on day 3 stays a daily player), with D1 and D7 as a share of the players old enough to have had that day. This is the roadmap\'s daily-only versus chapter comparison; the two retention curves above overlap, this table does not.',
     query: sql(MODE_COHORTS),
   },
   {
