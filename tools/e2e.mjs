@@ -239,7 +239,7 @@ const scenarios = {
     await api.page.setViewportSize({ width: 390, height: 844 }); await api.run(100);
   },
   async yoink(api) {
-    await api.page.evaluate(() => { const lv = SC.GEN.generateLevel({ art: SC.LEVELS[1].art, preset: 'easy', seed: 7, reverse: true, candidates: 20, playouts: 40 }); lv.artId = 'chick'; SC.UI.playGenerated(lv, 'yoink'); });
+    await api.page.evaluate(() => { const lv = SC.GEN.generateLevel({ art: SC.ARTS.chick.art, artId: 'chick', preset: 'easy', seed: 7, reverse: true, candidates: 20, playouts: 40 }); SC.UI.playGenerated(lv, 'yoink'); });
     await api.run(100);
     let s = await api.snap();
     ok(s.status === 'playing' && s.landed === s.total, `yoink level starts with a full board (${s.landed}/${s.total} blocks present)`);
@@ -354,6 +354,32 @@ const scenarios = {
     await api.tapBox(0); await api.settle(); s = await api.snap();
     ok(s.boxes[0] === null, 'tapping the boxed cat sends it again');
     await api.tapLane(0); await api.settle(); await api.run(1800); s = await api.snap(); ok(s.status === 'won', `R3 finishes the picture (status ${s.status})`);
+  },
+  async chapters(api) {
+    // the level select pages by chapter: eight levels a page plus the generated tile, remembered, following the last level played
+    let s = await api.page.evaluate(() => ({ pills: document.querySelectorAll('#chapters .chap').length, on: document.querySelector('#chapters .chap.on').textContent, tiles: document.querySelectorAll('#tiles .tile:not(.gen)').length, gen: document.querySelectorAll('#tiles .tile.gen').length, first: document.querySelector('#tiles .tile .name').textContent }));
+    ok(s.pills === 5 && s.on === '1' && s.tiles === 8 && s.gen === 1 && /^1\. /.test(s.first), `chapter 1: eight levels and the generated tile (${JSON.stringify(s)})`);
+    await api.clickSel('#chapters .chap', 2); await api.run(20);
+    s = await api.page.evaluate(() => ({ on: document.querySelector('#chapters .chap.on').textContent, first: document.querySelector('#tiles .tile .name').textContent, tiles: document.querySelectorAll('#tiles .tile:not(.gen)').length }));
+    ok(s.on === '3' && /^17\. /.test(s.first) && s.tiles === 8, 'chapter 3 starts at level 17');
+    await api.start(11); await api.run(50); await api.page.evaluate(() => SC.UI.showSelect()); await api.run(20);
+    s = await api.page.evaluate(() => ({ on: document.querySelector('#chapters .chap.on').textContent, first: document.querySelector('#tiles .tile .name').textContent }));
+    ok(s.on === '2' && /^9\. /.test(s.first), 'coming back from level 12 lands on chapter 2');
+    await api.clickSel('#tiles .tile', 0); await api.run(50);
+    ok((await api.page.evaluate(() => SC.Game.levelIndex)) === 8, 'the first tile of chapter 2 starts level 9');
+  },
+  async staleProgress(api) {
+    // progress is keyed by level id and a curated id carries its layout: an entry left by an earlier bake is dropped at
+    // boot, a live one is kept (a second page in the same context shares the storage and boots in real time)
+    const live = await api.page.evaluate(() => SC.LEVELS[1].id);
+    await api.page.evaluate((live) => localStorage.setItem('sc.progress', JSON.stringify({ done: { 'ghost-2': { timeSec: 50, dispatches: 27, when: 1 }, [live]: { timeSec: 61.5, dispatches: 27, when: 2 } } })), live);
+    const page2 = await api.page.context().newPage();
+    page2.on('pageerror', e => api.errors.push(e.message));
+    await page2.goto(PAGE_URL); await page2.waitForFunction(() => window.SC && document.querySelectorAll('#tiles .tile').length > 0);
+    const s = await page2.evaluate(() => { const p = JSON.parse(localStorage.getItem('sc.progress')); return { keys: Object.keys(p.done), doneTiles: [...document.querySelectorAll('#tiles .tile.done .name')].map(e => e.textContent) }; });
+    await page2.close();
+    ok(s.keys.length === 1 && s.keys[0] === live, `a stale id from an earlier bake is dropped at boot and the live one kept (${s.keys.join(', ')})`);
+    ok(s.doneTiles.length === 1 && /^2\. /.test(s.doneTiles[0]), `the level select shows exactly that level done (${s.doneTiles.join(', ')})`);
   },
   async autoFinish(api) {
     // the last cat with blocks left laps the shelf by itself, fast, instead of resting in a box and waiting for the same tap again

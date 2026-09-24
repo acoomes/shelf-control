@@ -29,6 +29,7 @@ The two builds are the same file. The source is the dev channel; the deploy rewr
 node tools/headless.mjs          # plan §13.1 + Phase 3 acceptance (≈90 s); --quick for a 5 s smoke run; --timing also asserts the 400 ms generation budget
 node tools/e2e.mjs               # Playwright scenarios in a real Chromium (fake clock); SHOTS=dir saves screenshots
 node tools/perf.mjs              # frame times per phase under 4x CPU throttling, plus a CPU profile of a parade
+node tools/curate.mjs            # re-bake the 40-level set from the arts table (≈2 min); --dry prints the curve without writing
 ```
 
 The headless suite needs only Node. The other two need Playwright: `npm install` (it is the only devDependency) or a global `npm install -g playwright`, then `npx playwright install chromium`. `npm test` and `npm run e2e` are shorthands.
@@ -39,7 +40,7 @@ The headless suite needs only Node. The other two need Playwright: `npm install`
 
 `index.html` has two scripts, in the order the plan's §6.2 asks for:
 
-- **`<script id="core">`** — pure logic, no DOM, no time, no `Math.random`: `CONFIG` → `RNG` (mulberry32) → `LEVEL DATA` (palette, six baked levels, loader assertions) → `GENERATOR` (Appendix A port: `generate`, `replay`, turn-based `playout`, exhaustive `solve`, `generateLevel` = generate-80-and-select) → `SIM` (`createSim`, the plan §6.3 API, build and yoink modes). Written to be ported to C# line for line.
+- **`<script id="core">`** — pure logic, no DOM, no time, no `Math.random`: `CONFIG` → `RNG` (mulberry32) → `LEVEL DATA` (palette, the `ARTS` table of sixteen hand-drawn pictures, the baked 40-level set written by `tools/curate.mjs`, loader assertions) → `GENERATOR` (Appendix A port: `generate`, `replay`, turn-based `playout`, exhaustive `solve`, `generateLevel` = generate-80-and-select) → `SIM` (`createSim`, the plan §6.3 API, build and yoink modes). Written to be ported to C# line for line.
 - **`<script id="app">`** — `AUDIO` (Web Audio synthesis, pentatonic landing ladder) → `RENDER` (layout, block sprites, procedural cats, boxes, scene) → `ACTORS` (cat and block state machines, fixed-step `update`) → `INPUT` (Pointer Events, tap buffer) → `UI/SCREENS` (level select, win/fail cards, settings, generated chooser, tutorial tips) → `DEBUG/TELEMETRY` → `BOOT`.
 
 ## Acceptance report by phase
@@ -53,6 +54,12 @@ The headless suite needs only Node. The other two need Playwright: `npm install`
 **Phase 4 — polish.** Tutorial tips (four on level 1, one line on level 2), settings (sound, symbols, assist, auto-finish, motion, reset), symbols mode, level-select thumbnails, debug overlay with live stats and sliders, telemetry records with *Copy stats* and a textarea fallback, "+1 box" once per attempt, reduced motion.
 
 **Phase 5 — yoink A/B.** `CONFIG.mode = 'yoink'`: the board starts full, cats pluck the topmost matching block per column, blocks pop upward into the sack, the badge is remaining sack space. Same sim with reversed columns; lanes come from the generator with `reverse: true`. Selectable from the generated chooser and the debug overlay; telemetry records `mode`.
+
+## The level set
+
+Forty levels in five chapters of eight, curated from sixteen pictures by `tools/curate.mjs`. Each slot of the curve names a random-win rate to aim for (0.97 at level 1 down to 0.06 at level 39); the tool generates candidates for that slot from the arts not yet used in the chapter, keeps the one closest to the target that also sits in the prototype plan's H4 band of 25–40 dispatches, and bakes it with its measured rating and its reference line. Chapter 1 is the onboarding chapter and has no boss. Chapter 2 ends on the first lookahead level (a boss the greedy player loses, rated 0.07); chapters 3 to 5 end on hard bosses that the greedy player loses at or below the plan's 5 % ceiling, the last of them the rainbow from the prototype. Bosses sit at levels 16, 24, 32 and 40 and nowhere else: the tool refuses a curve shaped otherwise and the suite asserts the baked set matches. The tool refuses to bake a boss slot without a qualifying candidate; the ceiling and the greedy rule have no override. The six Appendix B reference levels keep their hand-made lanes and take the slots their measured rating earns (heart 1, chick 8, mushroom 12, ice cream 18, cat 28, rainbow 40). No picture appears twice in a chapter or more than three times overall, and outside the bosses the curve never climbs back by more than 0.10 (the tool refuses a candidate that would). The level select pages by chapter, remembers the page, and comes back to the chapter of the last level played.
+
+A level's id is its identity for progress and telemetry. The six references are their art (`heart`); a curated level is its art, its slot and a six-digit hash of its layout (`ghost-2-8c1f2a`), so a re-bake that changes a puzzle changes its id, progress earned on the old puzzle is dropped at boot instead of marking the new one done, and the loader refuses an id that does not match its lanes. The headless suite replays every curated level's baked reference line in the sim, re-measures its rating with 300 fresh playouts (must stay within ±0.10 of the tile's number), checks the greedy flag and the dispatch band, and keeps the exhaustive solver and the Appendix B comparison on the six references. To add a picture, add it to `ARTS` and re-bake.
 
 ## Taste calls and deviations worth knowing about
 
