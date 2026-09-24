@@ -85,7 +85,7 @@ CURVE.forEach((entry, i) => {
   let best = null, nearest = null, nearestBoss = null, nearestCeil = null, nearestClimb = null, nearestLook = null;
   const ceiling = boss && GEN.PRESETS[presetName].targetIsCeiling;   // a hard boss: the plan's ≤ 5 % is binding, not the generator's ±0.10 band
   for (const artId of pool) for (let seed = 1; seed <= SEEDS; seed++) {
-    const lv = GEN.generateLevel({ art: ARTS[artId].art, artId, preset: presetName, seed, candidates: 48 });
+    const lv = GEN.generateLevel({ art: ARTS[artId].art, artId, preset: presetName, seed });   // the game's own defaults: 64 candidates, six finalists
     const d = lv.ref.length, outside = d < BAND[0] ? BAND[0] - d : d > BAND[1] ? d - BAND[1] : 0;
     if (outside && !ALLOW_OFF_BAND) { if (!nearest || outside < nearest.outside) nearest = { artId, seed, d, achieved: lv.achieved, outside }; continue; }   // never a candidate
     if (boss && lv.greedyWins) { if (!nearestBoss || Math.abs(lv.achieved - target) < Math.abs(nearestBoss.achieved - target)) nearestBoss = { artId, seed, d, achieved: lv.achieved }; continue; }   // a boss the greedy player solves is not a boss: binding, no override
@@ -127,12 +127,13 @@ const inBand = rows.filter(r => r.dispatches >= BAND[0] && r.dispatches <= BAND[
 const pinnedOut = rows.filter(r => r.note === 'pinned' && (r.dispatches < BAND[0] || r.dispatches > BAND[1])).map(r => `${r.id} ${r.dispatches}`);
 console.log(`\n${inBand}/${rows.length} levels inside the ${BAND[0]}–${BAND[1]} dispatch band (every curated level is; pinned references outside it: ${pinnedOut.join(', ') || 'none'}); art uses: ${Object.entries(uses).map(([a, u]) => `${a}:${u}`).join(' ')}`);
 
+const J = (v) => JSON.stringify(v);
 function levelText(lv) {
-  const lanes = lv.lanes.map(l => `"${l}"`).join(', ');
+  const lanes = lv.lanes.map(J).join(', ');
   const rating = lv.pinned
     ? `${lv.curve ? `curve:{ target:${lv.curve.target}, boss:true }, ` : ''}rating:{ randomWin:${lv.rating.randomWin}, greedyWins:${lv.rating.greedyWins} }`
     : `seed:${lv.seed}, curve:{ target:${lv.curve.target}${lv.curve.boss ? ', boss:true' : ''}${lv.curve.offBand ? ', offBand:true' : ''} },\n    rating:{ randomWin:${lv.rating.randomWin}, greedyWins:${lv.rating.greedyWins}, dispatches:${lv.rating.dispatches} },\n    ref:[${lv.ref.join(',')}]`;
-  return `  { id:'${lv.id}', name:'${lv.name}', artId:'${lv.artId}', art:ARTS.${lv.artId}.art, lanes:[ ${lanes} ],${lv.pinned ? ' pinned:true,' : ''}\n    ${rating} },\n`;
+  return `  { id:${J(lv.id)}, name:${J(lv.name)}, artId:${J(lv.artId)}, art:ARTS[${J(lv.artId)}].art, lanes:[ ${lanes} ],${lv.pinned ? ' pinned:true,' : ''}\n    ${rating} },\n`;
 }
 const block = "// ---- BAKED LEVELS: written by `node tools/curate.mjs`; do not edit by hand. Entries with pinned:true keep their hand-made\n"
   + "//      lanes (Appendix B reference levels) and are re-emitted as they are; the tool places them by their measured rating. ----\n"
@@ -140,9 +141,13 @@ const block = "// ---- BAKED LEVELS: written by `node tools/curate.mjs`; do not 
 if (DRY) { console.log('\n(dry run: index.html untouched)'); process.exit(0); }
 const re = /\/\/ ---- BAKED LEVELS:[\s\S]*?\/\/ ---- END BAKED LEVELS ----\n/;
 if (!re.test(html)) { console.error('baked block markers not found'); process.exit(2); }
-fs.writeFileSync(file, html.replace(re, block));
-// re-load the rewritten core and make sure every level passes the loader
-const html2 = fs.readFileSync(file, 'utf8'); const sb2 = { module: { exports: {} }, console };
-vm.runInNewContext(/<script id="core">([\s\S]*?)<\/script>/.exec(html2)[1], sb2, { filename: 'core2.js' });
-sb2.module.exports.validateBakedLevels();
+const html2 = html.replace(re, block);
+// the rewritten core must parse and pass the loader before index.html is touched
+try {
+  const sb2 = { module: { exports: {} }, console };
+  vm.runInNewContext(/<script id="core">([\s\S]*?)<\/script>/.exec(html2)[1], sb2, { filename: 'core2.js' });
+  sb2.module.exports.validateBakedLevels();
+  if (sb2.module.exports.LEVELS.length !== out.length) throw new Error('level count differs after reload');
+} catch (e) { console.error(`\nBake refused: the rewritten core does not load (${e.message}); index.html untouched`); process.exit(1); }
+fs.writeFileSync(file, html2);
 console.log(`\nwrote ${out.length} levels into index.html; loader assertions pass`);
