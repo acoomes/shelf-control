@@ -167,7 +167,7 @@ const scenarios = {
     const tele = await api.page.evaluate(() => SC.telemetry());
     ok(tele.length === 2 && tele[0].result === 'failed' && tele[0].reason === 'no_box' && tele[1].result === 'won' && tele[1].continuesUsed === 1, `telemetry: ${JSON.stringify(tele.map(r => [r.result, r.reason, r.continuesUsed]))}`);
     // the accepted continue is an event of its own, and the play id ties it to the failure it rescued and the ending that followed
-    const q = await api.page.evaluate(() => JSON.parse(localStorage.getItem('sc.tq')).filter(e => e.event !== 'session_start').map(e => ({ event: e.event, play: e.properties.play, reason: e.properties.reason, result: e.properties.result, continuesUsed: e.properties.continuesUsed, placedPct: e.properties.placedPct })));
+    const q = await api.page.evaluate(() => SC.Telemetry.queue().filter(e => e.event !== 'session_start').map(e => ({ event: e.event, play: e.properties.play, reason: e.properties.reason, result: e.properties.result, continuesUsed: e.properties.continuesUsed, placedPct: e.properties.placedPct })));
     ok(q.map(e => e.event).join(',') === 'level_start,level_end,level_continue,level_end', `queued events: ${q.map(e => e.event).join(', ')}`);
     ok(q.every(e => /^[0-9a-f]{8}$/.test(e.play) && e.play === q[0].play) && q[1].continuesUsed === 0 && q[2].reason === 'no_box' && q[2].placedPct === Number((txt.match(/(\d+)% of the picture/) || [])[1]) && q[3].result === 'won' && q[3].continuesUsed === 1 && tele[0].play === q[0].play, `one play id on all four (${q[0].play}); the continue names the failure it rescued and the card's ${q[2].placedPct}% placed`);
   },
@@ -405,7 +405,7 @@ const scenarios = {
     ok(r.shared === r.expected && /^Shelf Control #\d+ · \d+:\d\d · \d+ box/.test(r.shared) && /[🟥🟧🟨🟩🟦🟪⬛⬜🟫]/u.test(r.shared), `Share copied the Wordle-style text with the emoji picture (${r.shared.split('\n')[0]})`);
     ok(r.btn === 'Copied!' && r.d.streak === 1 && r.d.lastWon === info.n && r.d.wins[info.key].attempts === 1, `the button says Copied!, streak 1, the win is stored (${JSON.stringify(r.d.wins[info.key])})`);
     ok(r.rec.daily === info.n && r.rec.attempt === 1 && r.rec.level === info.id, 'the telemetry record carries the day number and the attempt');
-    ok(await api.page.evaluate((n) => JSON.parse(localStorage.getItem('sc.tq')).some(e => e.event === 'daily_share' && e.properties.method === 'copied' && e.properties.daily === n && e.properties.attempts === 1), info.n), 'a daily_share event is queued with the method and the day');
+    ok(await api.page.evaluate((n) => SC.Telemetry.queue().some(e => e.event === 'daily_share' && e.properties.method === 'copied' && e.properties.daily === n && e.properties.attempts === 1), info.n), 'a daily_share event is queued with the method and the day');
     // UTC midnight passes with the win card still open: Share still shares the daily that was completed
     await api.page.clock.setSystemTime(new Date('2026-10-06T00:00:05Z')); await api.run(20);
     await api.page.evaluate(() => { window.__shared = null; }); await api.clickSel('#panel .btn.good'); await api.run(100);
@@ -447,15 +447,16 @@ const scenarios = {
   async telemetry(api) {
     // plan §2.3: events over plain HTTP, queued in storage, flushed through a replaceable transport; off from a file:// open unless enabled
     const { page } = api;
-    const boot = await page.evaluate(() => ({ enabled: SC.Telemetry.enabled, pending: SC.Telemetry.pending(), q: JSON.parse(localStorage.getItem('sc.tq')), device: JSON.parse(localStorage.getItem('sc.device')) }));
+    const boot = await page.evaluate(() => ({ enabled: SC.Telemetry.enabled, pending: SC.Telemetry.pending(), q: SC.Telemetry.queue(), keys: Object.keys(localStorage).filter(k => k.startsWith('sc.tq.')), device: JSON.parse(localStorage.getItem('sc.device')) }));
     ok(boot.enabled === false && boot.pending === 1 && boot.q[0].event === 'session_start' && boot.q[0].properties.channel === 'dev' && boot.q[0].properties.standalone === false && boot.q[0].properties.sessions === 1 && /^[0-9a-f]{16}$/.test(boot.device) && boot.q[0].distinct_id === boot.device, `a file:// open queues session_start without sending (device ${boot.device})`);
+    ok(boot.keys.length === 1 && boot.keys[0] === `sc.tq.${String(Date.parse(boot.q[0].timestamp)).padStart(13, '0')}.${boot.q[0].uuid}`, `each event is its own key in storage (${boot.keys[0]})`);
     await page.evaluate(() => { window.__sent = []; window.__ok = false; SC.Telemetry.transport = (body) => { window.__sent.push(body); return Promise.resolve(window.__ok); }; SC.Telemetry.enabled = true; });
     await api.start(FIX.autoFin); await api.run(50);
     let s = await page.evaluate(() => ({ sent: window.__sent.length, pending: SC.Telemetry.pending(), last: window.__sent[window.__sent.length - 1] }));
     ok(s.sent >= 1 && s.pending === 2 && s.last.api_key.startsWith('phc_') && s.last.batch.some(e => e.event === 'level_start' && e.properties.level === 'fx-auto' && e.properties.levelNo === null && e.properties.mode === 'build'), 'level_start is posted with the project key; a refused post keeps the queue');
     await page.evaluate(() => { window.__ok = true; });
     await api.tapLane(0); await api.settle(); await api.tapLane(0); await api.settle(); await api.run(1800);   // B4 places the bottom row, then R12 wins through auto-finish
-    s = await page.evaluate(() => { const last = window.__sent[window.__sent.length - 1].batch; return { pending: SC.Telemetry.pending(), sent: SC.Telemetry.sent, stored: JSON.parse(localStorage.getItem('sc.tq')).length, events: last.map(e => e.event), end: last.find(e => e.event === 'level_end') }; });
+    s = await page.evaluate(() => { const last = window.__sent[window.__sent.length - 1].batch; return { pending: SC.Telemetry.pending(), sent: SC.Telemetry.sent, stored: Object.keys(localStorage).filter(k => k.startsWith('sc.tq.')).length, events: last.map(e => e.event), end: last.find(e => e.event === 'level_end') }; });
     ok(s.pending === 0 && s.stored === 0 && s.sent === 3 && s.events.join(',') === 'session_start,level_start,level_end', `once a post succeeds the queue drains in order (${s.events.join(', ')})`);
     ok(s.end && s.end.properties.result === 'won' && s.end.properties.dispatches === 2 && s.end.properties.autoLoops === 2 && s.end.properties.level === 'fx-auto' && s.end.properties.channel === 'dev' && typeof s.end.properties.timeSec === 'number', 'level_end carries the play record');
     // the toggle: off records nothing and clears what is queued; on records again
@@ -463,8 +464,8 @@ const scenarios = {
     ok(s.r === null && s.pending === 2, 'with the setting off nothing is recorded; on again it is');
     // what could not be sent survives a reload
     await page.reload(); await api.run(300);
-    s = await page.evaluate(() => ({ pending: SC.Telemetry.pending(), first: JSON.parse(localStorage.getItem('sc.tq'))[0].properties.level, device: JSON.parse(localStorage.getItem('sc.device')) }));
-    ok(s.pending === 3 && s.first === 'x' && s.device === boot.device, `the queue and the device id persist across a reload (${s.pending} pending)`);
+    s = await page.evaluate(() => ({ pending: SC.Telemetry.pending(), levels: SC.Telemetry.queue().map(e => e.properties.level).filter(Boolean).sort().join(), device: JSON.parse(localStorage.getItem('sc.device')), same: SC.Telemetry.device === JSON.parse(localStorage.getItem('sc.device')) }));
+    ok(s.pending === 3 && s.levels === 'x,y' && s.device === boot.device && s.same, `the queue and the device id persist across a reload (${s.pending} pending, device ${s.device})`);
     // the queue is capped
     s = await page.evaluate(() => { for (let i = 0; i < 260; i++) SC.Telemetry.record('level_start', { i }); return SC.Telemetry.pending(); });
     ok(s === 200, `the queue keeps the latest 200 events when nothing can be sent (${s})`);
@@ -476,13 +477,13 @@ const scenarios = {
       SC.Telemetry.clear(); SC.Telemetry.enabled = true; window.__posts = []; let settle = null;   // the reload made this a file:// open again
       SC.Telemetry.transport = (body) => { window.__posts.push(body.batch.map(e => e.properties.level)); return new Promise(r => { settle = r; }); };
       SC.Telemetry.record('level_start', { level: 'a' });                       // in flight now
-      const q = JSON.parse(localStorage.getItem('sc.tq')); q.push({ uuid: 'from-another-tab', event: 'level_start', distinct_id: 'x', timestamp: 't', properties: { level: 'b' } }); localStorage.setItem('sc.tq', JSON.stringify(q));
+      localStorage.setItem(`sc.tq.${String(Date.now()).padStart(13, '0')}.from-another-tab`, JSON.stringify({ uuid: 'from-another-tab', event: 'level_start', distinct_id: 'x', timestamp: 't', properties: { level: 'b' } }));
       SC.Telemetry.record('level_start', { level: 'c' });                       // recorded while in flight
-      const uuids = JSON.parse(localStorage.getItem('sc.tq')).map(e => e.uuid);
+      const uuids = SC.Telemetry.queue().map(e => e.uuid);
       settle(true); await tick();                                               // a acknowledged; b and c must remain and go next
-      const afterFirst = JSON.parse(localStorage.getItem('sc.tq')).map(e => e.properties.level);
+      const afterFirst = SC.Telemetry.queue().map(e => e.properties.level).sort();   // one paused-clock millisecond: their order is not defined
       settle(true); await tick();
-      const afterSecond = JSON.parse(localStorage.getItem('sc.tq')).length;
+      const afterSecond = SC.Telemetry.queue().length;
       localStorage.setItem('sc.tqlock', JSON.stringify({ owner: 'other-tab', until: Date.now() + 15000 }));
       SC.Telemetry.record('level_start', { level: 'd' });
       const heldPosts = window.__posts.length, heldPending = SC.Telemetry.pending();
@@ -490,7 +491,7 @@ const scenarios = {
       return { uuids, posts: window.__posts, afterFirst, afterSecond, heldPosts, heldPending, finalPending: SC.Telemetry.pending() };
     });
     ok(s.uuids.length === 3 && s.uuids.every(u => typeof u === 'string' && u.length >= 8) && s.posts[0].join() === 'a' && s.afterFirst.join() === 'b,c', `an acknowledged batch leaves by uuid; what other tabs or later play added stays (${s.afterFirst.join(', ')} remained)`);
-    ok(s.posts[1].join() === 'b,c' && s.afterSecond === 0, 'the rest goes in the next post');
+    ok(s.posts[1].slice().sort().join() === 'b,c' && s.afterSecond === 0, 'the rest goes in the next post');
     ok(s.heldPosts === 2 && s.heldPending === 1 && s.posts[2].join() === 'd' && s.finalPending === 0, `a lease held by another tab defers the post until it lapses (${s.posts.length} posts)`);
     // the opt-out is one per origin: the flag another tab persisted stops this tab recording and posting before anything syncs, a flush
     // drops what that tab may have queued meanwhile, and the storage event brings the setting itself across (and back)
@@ -513,6 +514,9 @@ const scenarios = {
     });
     ok(s.queued === 1 && s.off === null && s.stillMemory === true && s.beforeFlush === 1 && s.afterFlush === 0, `another tab's opt-out stops this tab recording at once, and its next flush drops the queue (${s.beforeFlush} → ${s.afterFlush})`);
     ok(s.synced === false && s.back === true && s.on && s.finalPending === 1, 'the storage event carries the setting across, and back');
+    // the device id is storage's, not this tab's: an id another tab minted first is the one every later event carries
+    s = await page.evaluate(() => { localStorage.setItem('sc.device', JSON.stringify('0123456789abcdef')); const e = SC.Telemetry.record('level_start', { level: 'v' }); return { id: e.distinct_id, prop: e.properties.distinct_id, dev: SC.Telemetry.device }; });
+    ok(s.id === '0123456789abcdef' && s.prop === s.id && s.dev === s.id, `an id another tab persisted first is adopted by the next record (${s.id})`);
   },
   async pwa(api) {
     // installable (plan §2.4): manifest and icons in place, no worker from a file:// open, a home-screen hint after the second session, standalone launches counted

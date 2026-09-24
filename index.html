@@ -1198,6 +1198,8 @@ const Store = (() => {
     available: !!ls,
     get(k, def) { try { const v = ls ? ls.getItem(k) : mem[k]; return v == null ? def : JSON.parse(v); } catch (e) { return def; } },
     set(k, v) { const s = JSON.stringify(v); mem[k] = s; try { if (ls) ls.setItem(k, s); } catch (e) { /* storage blocked: keep in memory */ } },
+    remove(k) { delete mem[k]; try { if (ls) ls.removeItem(k); } catch (e) { /* ignore */ } },
+    keys(prefix) { try { return Object.keys(ls || mem).filter(k => k.startsWith(prefix)); } catch (e) { return []; } },
     clear() { for (const k of Object.keys(mem)) delete mem[k]; try { if (ls) for (const k of Object.keys(ls)) if (k.startsWith('sc.')) ls.removeItem(k); } catch (e) { /* ignore */ } },
   };
 })();
@@ -1231,14 +1233,22 @@ const TELEMETRY = { key: 'phc_xSXx3TjTHBMdD6NeX2g7TcqVs2fErApHk7yg8nazTLkM', hos
 const Telemetry = (() => {
   const hex = (n) => { let out = ''; for (let i = 0; i < n; i++) out += ((Math.random() * 16) | 0).toString(16); return out; };
   const uuid = () => { try { return crypto.randomUUID(); } catch (e) { return `${hex(8)}-${hex(4)}-4${hex(3)}-a${hex(3)}-${hex(12)}`; } };
-  let device = Store.get('sc.device', null); if (typeof device !== 'string' || !device) { device = hex(16); Store.set('sc.device', device); }
+  // The device id is read from storage at each record, never held: two tabs on a first visit may each mint one, and the one
+  // that landed in storage is the one every event then carries, so a device's sessions never split across two identities.
+  const deviceId = () => { let d = Store.get('sc.device', null); if (typeof d !== 'string' || !d) { d = hex(16); Store.set('sc.device', d); } return d; };
   const session = hex(8);
   // The queue lives in storage, which the live build and /test/ share on one origin, as do two tabs of either. So storage is the
-  // truth: every change is a fresh read, an edit and a write, acknowledged events are removed by their uuid rather than by
-  // position, and a short lease keeps two tabs from posting the same backlog at once. The uuid also lets PostHog drop a
-  // duplicate if a post is acknowledged twice.
-  const load = () => { const q = Store.get('sc.tq', []); return Array.isArray(q) ? q : []; };
-  const save = (q) => Store.set('sc.tq', q);
+  // truth, and each event is its own key, `sc.tq.<ms>.<uuid>`: an append is one write and an acknowledgement one removal, so two
+  // tabs recording or posting at the same instant cannot overwrite each other's edit of a shared list. The keys sort in time
+  // order, a short lease keeps two tabs from posting the same backlog at once, and the uuid lets PostHog drop a duplicate if a
+  // post is ever acknowledged twice.
+  const PREFIX = 'sc.tq.';
+  const keys = () => Store.keys(PREFIX).sort();
+  const load = () => keys().map(k => Store.get(k, null)).filter(e => e && e.uuid);
+  const put = (e, ms) => Store.set(PREFIX + String(ms).padStart(13, '0') + '.' + e.uuid, e);
+  const drop = (uuids) => { const s = new Set(uuids); for (const k of keys()) if (s.has(k.slice(k.lastIndexOf('.') + 1))) Store.remove(k); };
+  const trim = () => { const ks = keys(); for (const k of ks.slice(0, Math.max(0, ks.length - TELEMETRY.keep))) Store.remove(k); };
+  const clearAll = () => { for (const k of keys()) Store.remove(k); };
   const leaseHeld = () => { const l = Store.get('sc.tqlock', null); return !!(l && l.owner !== session && l.until > Date.now()); };
   const takeLease = () => Store.set('sc.tqlock', { owner: session, until: Date.now() + TELEMETRY.lease });
   const dropLease = () => { const l = Store.get('sc.tqlock', null); if (l && l.owner === session) Store.set('sc.tqlock', null); };
@@ -1258,31 +1268,32 @@ const Telemetry = (() => {
   }
   const T = {
     enabled: /^https?:$/.test(location.protocol) && !!TELEMETRY.key,
-    transport: null, flushing: false, sent: 0, lastStatus: null, lastError: null, device, session,
+    transport: null, flushing: false, sent: 0, lastStatus: null, lastError: null, session, get device() { return deviceId(); },
     // The opt-out is one per origin: the persisted flag is consulted as well as this tab's copy, so a toggle in another tab
     // (or on the other build) stops this one recording and posting at once, before the storage event has synced the settings.
     on: () => settings.telemetry !== false && persistedOn(),
     id: () => hex(8),
-    pending: () => load().length,
+    pending: () => keys().length,
+    queue: () => load(),
     record(event, props) {
       if (!T.on()) return null;
-      const e = { uuid: uuid(), event, distinct_id: device, timestamp: new Date().toISOString(), properties: Object.assign(base(), props || {}, { distinct_id: device }) };
-      const q = load(); q.push(e); if (q.length > TELEMETRY.keep) q.splice(0, q.length - TELEMETRY.keep);
-      save(q); T.flush(); return e;
+      const now = Date.now(), device = deviceId();
+      const e = { uuid: uuid(), event, distinct_id: device, timestamp: new Date(now).toISOString(), properties: Object.assign(base(), props || {}, { distinct_id: device }) };
+      put(e, now); trim(); T.flush(); return e;
     },
     async flush() {
       if (!T.enabled || T.flushing) return false;
-      if (!T.on()) { if (load().length) save([]); return false; }   // opted out, here or in another tab: whatever another tab queued meanwhile goes too
+      if (!T.on()) { clearAll(); return false; }   // opted out, here or in another tab: whatever another tab queued meanwhile goes too
       if (leaseHeld()) return false;
       const batch = load().slice(0, TELEMETRY.batch); if (!batch.length) return false;
       T.flushing = true; takeLease(); let ok = false;
       try { ok = await (T.transport || post)({ api_key: TELEMETRY.key, batch }); T.lastError = null; } catch (e) { T.lastError = String((e && e.message) || e); }
-      if (ok) { const done = new Set(batch.map(e => e.uuid)); save(load().filter(e => !done.has(e.uuid))); T.sent += batch.length; }
+      if (ok) { drop(batch.map(e => e.uuid)); T.sent += batch.length; }
       dropLease(); T.flushing = false;
-      if (ok && load().length) T.flush();
+      if (ok && keys().length) T.flush();
       return ok;
     },
-    clear() { save([]); },
+    clear() { clearAll(); },
   };
   try {
     window.addEventListener('online', () => T.flush());
