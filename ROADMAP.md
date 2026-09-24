@@ -19,7 +19,7 @@ The prototype proved twenty good minutes for people who love you. This iteration
 - The fix list: the setting that does nothing (once it has a name), iPhone sound confirmed on the live build, auto-finish glow-only under reduced motion, workflow action bumps when their Node 24 releases land.
 
 **Slice 3: measurement, then strangers.**
-- PostHog, free tier: `session_start`, `level_start`, `level_end`, `daily_share`, `install`, an anonymous device id, no personal data. The dev channel reports to a separate project so playtests never pollute the live numbers. The "+1 box" continue is instrumented now, because its take-rate decides whether it can carry a rewarded ad later.
+- PostHog, free tier: `session_start`, `level_start`, `level_end`, `daily_share`, `install`, an anonymous device id, no personal data. One project; a `channel` property keeps playtests on the test build out of the live numbers. The "+1 box" continue is instrumented now, because its take-rate decides whether it can carry a rewarded ad later. (Built 2026-09-24.)
 - Playtest round two: ten or more strangers (friends of friends, one puzzle community, one HTML5 portal listing as the distribution hedge).
 - H1 closed: five people play build mode and the yoink mode, alternating order, and say which they would keep playing. The loser is deleted.
 - H3 closed: a fifteen-second recording of level 3 shown cold to three people who then explain the rules. If they cannot, the fix goes into what the recording shows, never into the tutorial, and the test is re-run on three new people. No money goes into distribution while H3 fails.
