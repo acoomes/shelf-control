@@ -45,12 +45,13 @@ const wait = (ms) => page.waitForTimeout(ms);
 
 await wait(300);
 const idle = await sample('level select (idle)', 2000);
-await page.evaluate(() => { SC.Game.levelIndex = 5; SC.startLevel(SC.LEVELS[5]); });   // rainbow: 12 wide, 4 lanes
+const startById = (id) => page.evaluate((id) => { const i = SC.LEVELS.findIndex(l => l.id === id); if (i < 0) throw new Error('no level ' + id); SC.Game.levelIndex = i; SC.startLevel(SC.LEVELS[i]); return SC.Game.sim.lanes.length; }, id);
+const lanesN = await startById('rainbow');   // 12 wide, 4 lanes: the heaviest reference level, found by id since the set is curated
 await wait(200);
 const start = await sample('level start (no cats)', 2000);
 // five cats in flight, blocks falling and landing: taps staggered by more than minDispatchGap so none is buffered or denied
 async function fiveCatParade(offset) {
-  for (let i = 0; i < 5; i++) { await page.evaluate((l) => SC.tap({ kind: 'lane', lane: l }), (i + offset) % 4); await wait(300); }
+  for (let i = 0; i < 5; i++) { await page.evaluate((l) => SC.tap({ kind: 'lane', lane: l }), (i + offset) % lanesN); await wait(300); }
   const n = await page.evaluate(() => SC.Game.sim.inFlight.length);
   if (n < 5) console.log(`  (warning: only ${n} cats in flight)`);
   return n;
@@ -70,10 +71,10 @@ await wait(3800);
 const st = await page.evaluate(() => SC.Game.state);
 const win = await sample(`win + confetti (${st})`, 1800);
 // CPU profile of a parade to name the hot functions
-await page.evaluate(() => { SC.Game.levelIndex = 4; SC.startLevel(SC.LEVELS[4]); });
+const lanesP = await startById('catface');
 await wait(200);
 await cdp.send('Profiler.enable'); await cdp.send('Profiler.setSamplingInterval', { interval: 500 }); await cdp.send('Profiler.start');
-for (let i = 0; i < 5; i++) { await page.evaluate((l) => SC.tap({ kind: 'lane', lane: l }), i % 3); await wait(300); }
+for (let i = 0; i < 5; i++) { await page.evaluate((l) => SC.tap({ kind: 'lane', lane: l }), i % lanesP); await wait(300); }
 await wait(2500);
 const { profile } = await cdp.send('Profiler.stop');
 const self = new Map(); const byId = new Map(profile.nodes.map(n => [n.id, n]));

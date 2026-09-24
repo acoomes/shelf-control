@@ -7,6 +7,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -16,7 +18,9 @@ if (!m) { console.error('core script not found'); process.exit(2); }
 const sandbox = { module: { exports: {} }, console };
 vm.runInNewContext(m[1], sandbox, { filename: 'core.js' });
 const C = sandbox.module.exports;
-const { LEVELS, BACKTEST, GEN, createSim, makeRng, loadLevel, validateBakedLevels } = C;
+const { ARTS, LEVELS, BACKTEST, GEN, createSim, makeRng, loadLevel, validateBakedLevels, layoutHash, DAILY } = C;
+const PINNED = LEVELS.filter(l => l.pinned), CURATED = LEVELS.filter(l => !l.pinned);   // six Appendix B references + the curated rest
+const ART_LIST = Object.entries(ARTS).map(([id, a]) => ({ id, art: a.art }));
 
 const quick = process.argv.includes('--quick');
 const timing = process.argv.includes('--timing');   // wall-clock generation budget is host-dependent: assert only when asked
@@ -26,7 +30,14 @@ const ok = (cond, msg) => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${msg}`); if
 const fmt = (x) => (typeof x === 'number' ? x.toFixed(3) : String(x));
 
 console.log('== loader ==');
-try { validateBakedLevels(); ok(true, 'all six baked levels pass loader assertions'); } catch (e) { ok(false, `loader: ${e.message}`); }
+try { validateBakedLevels(); ok(true, `all ${LEVELS.length} baked levels pass loader assertions (${PINNED.length} pinned, ${CURATED.length} curated from ${ART_LIST.length} arts)`); } catch (e) { ok(false, `loader: ${e.message}`); }
+ok(PINNED.every(lv => lv.id === lv.artId) && CURATED.every(lv => lv.id === `${lv.artId}-${LEVELS.indexOf(lv) + 1}-${layoutHash(lv.art, lv.lanes)}`), 'ids are identities: a pinned reference is its art, a curated level is art-slot-layout hash');
+{ // the same lanes in another order is a different puzzle: its id no longer matches, and the loader says so
+  const lv = CURATED[0], keep = lv.lanes; lv.lanes = [...keep.slice(1), keep[0]]; let threw = false;
+  try { validateBakedLevels(); } catch (e) { threw = /does not match its layout/.test(e.message); }
+  lv.lanes = keep;
+  ok(threw && keep.length > 1, `loader rejects a curated level whose lanes changed without a re-bake (${lv.id})`);
+}
 for (const bad of [
   { name: 'gap under a colour', level: { art: ['RR', '.R'], lanes: ['R3'] } },
   { name: 'ragged rows', level: { art: ['RRR', 'RR'], lanes: ['R5'] } },
@@ -49,13 +60,36 @@ function replayLineInSim(level, line, opts) {
   }
   return { sim };
 }
-console.log('\n== 13.1.1 exhaustive turn-based solve ==');
-for (const lv of LEVELS) {
+console.log('\n== 13.1.1 exhaustive turn-based solve (pinned) + reference-line replay (curated) ==');
+const solverLine = {};
+for (const lv of PINNED) {
   const { cols, lanes, cap } = GEN.lanesOf(lv);
   const t0 = Date.now();
   const r = GEN.solve(cols, lanes, cap, 20e6);
   ok(r.solvable && !r.aborted, `${lv.id}: solvable=${r.solvable} nodes=${r.nodes} line=${r.line ? r.line.length + ' moves' : '-'} (${Date.now() - t0} ms)`);
+  if (r.line) solverLine[lv.id] = r.line.length;
   if (r.line) { const rr = replayLineInSim(lv, r.line); ok(!rr.error && rr.sim.status === 'won', `${lv.id}: the solver's line wins in the real sim`); }
+}
+{
+  let bad = [];
+  for (const lv of CURATED) {
+    const sim = createSim(lv); let fail = null;
+    for (const id of lv.ref) { const r = sim.dispatch(id); if (!r.ok) { fail = `dispatch ${id} denied (${r.reason})`; break; } sim.arrive(id); }
+    if (!fail && sim.status !== 'won') fail = `status ${sim.status} after the line`;
+    if (!fail && lv.ref.length !== lv.rating.dispatches) fail = `ref has ${lv.ref.length} moves, rating says ${lv.rating.dispatches}`;
+    if (fail) bad.push(`${lv.id}: ${fail}`);
+  }
+  ok(bad.length === 0, `every curated level wins in the sim along its baked reference line (${CURATED.length} levels)${bad.length ? ': ' + bad.join('; ') : ''}`);
+  const inBand = (l) => l.rating.dispatches >= 25 && l.rating.dispatches <= 40;
+  const overrides = CURATED.filter(l => l.curve && l.curve.offBand);                       // baked with --allow-off-band: a written decision, carried in the level itself
+  const band = CURATED.filter(l => inBand(l) || (l.curve && l.curve.offBand)).length;
+  ok(band === CURATED.length, `every curated level sits in the H4 band of 25–40 dispatches${overrides.length ? `, except ${overrides.length} baked outside it by written decision (${overrides.map(l => `${l.id} ${l.rating.dispatches}`).join(', ')})` : ''} (${CURATED.length - overrides.length}/${CURATED.length} in band)`);
+  ok(overrides.every(l => !inBand(l)), 'no level carries an off-band override it does not need');
+  // the six references keep their hand-made lanes for the Appendix B cross-check; exactly two of them run outside the band,
+  // by a written decision in the iteration 2 plan (§2.1): heart is the tutorial and short, rainbow is the finale and long
+  const EXEMPT = { heart: true, rainbow: true };
+  const pinnedOut = PINNED.filter(l => solverLine[l.id] < 25 || solverLine[l.id] > 40).map(l => `${l.id} ${solverLine[l.id]}`);
+  ok(pinnedOut.every(s => EXEMPT[s.split(' ')[0]]) && pinnedOut.length === Object.keys(EXEMPT).length, `pinned references outside the band are exactly the two documented exceptions (${pinnedOut.join(', ')})`);
 }
 {
   // the solver must also say no when the answer is no, and must backtrack when lane-first ordering fails
@@ -72,7 +106,7 @@ for (const lv of LEVELS) {
 }
 
 console.log(`\n== 13.1.2 random playouts (${PLAYOUTS} per level) vs Appendix B ==`);
-for (const lv of LEVELS) {
+for (const lv of PINNED) {
   const { cols, lanes, cap } = GEN.lanesOf(lv);
   const rng = makeRng(C.hashSeed('playout:' + lv.id));
   const rate = GEN.randomWinRate(cols, lanes, cap, rng, PLAYOUTS);
@@ -81,10 +115,34 @@ for (const lv of LEVELS) {
   ok(Math.abs(rate - ref.randomWin) <= 0.05, `${lv.id}: random-win ${fmt(rate)} (appendix ${ref.randomWin})`);
   ok(greedy === ref.greedyWins, `${lv.id}: greedy wins=${greedy} (appendix ${ref.greedyWins})`);
 }
+{
+  const N = quick ? 100 : 300; let off = [], greedyOff = [];
+  for (const lv of CURATED) {
+    const { cols, lanes, cap } = GEN.lanesOf(lv);
+    const rate = GEN.randomWinRate(cols, lanes, cap, makeRng(C.hashSeed('rate:' + lv.id)), N);
+    if (Math.abs(rate - lv.rating.randomWin) > 0.10) off.push(`${lv.id} ${fmt(rate)} vs ${lv.rating.randomWin}`);
+    if (GEN.playout(cols, lanes, cap, makeRng(1), true) !== lv.rating.greedyWins) greedyOff.push(lv.id);
+  }
+  ok(off.length === 0, `baked ratings hold: ${N} fresh playouts per curated level within ±0.10 of the tile's number${off.length ? ' (off: ' + off.join(', ') + ')' : ''}`);
+  ok(greedyOff.length === 0, `baked greedy flags hold${greedyOff.length ? ' (off: ' + greedyOff.join(', ') + ')' : ''}`);
+  const isBoss = (l) => !!(l.curve && l.curve.boss);
+  const bosses = LEVELS.filter(isBoss), others = LEVELS.filter(l => !isBoss(l));
+  ok(bosses.length > 0 && bosses.every(l => !l.rating.greedyWins), `every chapter boss needs lookahead (${bosses.map(l => l.id).join(', ')})`);
+  // plan §2.1 shape: chapter 1 (onboarding) has no boss; chapters 2 to 5 each close with one, hard (ceiling 0.05) from chapter 3 on
+  { const wrong = LEVELS.map((l, i) => { const n = i + 1, want = n % 8 === 0 && n > 8; return isBoss(l) !== want ? `${n}:${l.id}${want ? ' not a boss' : ' is a boss'}` : (want && n > 16 && !(l.curve.target <= 0.05)) ? `${n}:${l.id} not hard` : null; }).filter(Boolean);
+    ok(LEVELS.length === 40 && wrong.length === 0, `bosses close chapters 2 to 5 and nothing else (16 lookahead; 24, 32 and 40 hard); chapter 1 has none${wrong.length ? ' (NOT: ' + wrong.join(', ') + ')' : ''}`); }
+  ok(others.every(l => l.rating.greedyWins), `lookahead levels live only in boss slots: every other level is greedy-solvable${others.filter(l => !l.rating.greedyWins).length ? ' (NOT: ' + others.filter(l => !l.rating.greedyWins).map(l => l.id).join(', ') + ')' : ''}`);
+  // the curve descends: outside the chapter bosses (and the pinned lookahead finale) no level is rated more than 0.10 above the previous one (plan §2.1)
+  { let prev = null; const climbs = [];
+    for (const l of LEVELS) { if (isBoss(l)) continue; const r = l.rating.randomWin; if (prev && r > prev.r + 0.10 + 1e-9) climbs.push(`${l.id} ${r} after ${prev.id} ${prev.r}`); prev = { id: l.id, r }; }
+    ok(climbs.length === 0, `the curve never climbs back by more than 0.10 outside the chapter bosses${climbs.length ? ' (' + climbs.join('; ') + ')' : ''}`); }
+  const hardBosses = bosses.filter(l => l.curve.target <= 0.05);   // the pinned finale carries its ceiling too
+  ok(hardBosses.every(l => l.rating.randomWin <= l.curve.target), `every hard boss is rated at or below its 5 % ceiling (${hardBosses.map(l => `${l.id} ${l.rating.randomWin}`).join(', ')})`);
+}
 
 console.log('\n== 13.1.3 determinism ==');
 {
-  const lv = LEVELS[3];
+  const lv = LEVELS.find(l => l.id === 'icecream');
   const run = () => {
     const sim = createSim(lv); const out = [];
     const order = [];
@@ -111,7 +169,7 @@ console.log('\n== 13.1.3 determinism ==');
   const golden = {};
   for (const lv of LEVELS) { const sim = createSim(lv); const parts = []; for (let i = 0; i < 12; i++) { const lane = sim.lanes[i % sim.lanes.length]; if (!lane.length) continue; const id = lane[0].id; const r = sim.dispatch(id); parts.push(r.ok ? r.placements.map(p => `${p.col}${p.row}`).join('') : r.reason); if (r.ok) sim.arrive(id); } golden[lv.id] = C.hashSeed(parts.join('|')); }
   const GOLDEN = { heart: 3785182514, chick: 4117558065, mushroom: 1688537698, icecream: 1379069667, catface: 3638597410, rainbow: 3689267354 };
-  ok(LEVELS.every(lv => golden[lv.id] === GOLDEN[lv.id]), `placement golden hashes match (${JSON.stringify(golden)})`);
+  ok(Object.keys(GOLDEN).every(id => golden[id] === GOLDEN[id]), `placement golden hashes match for the reference levels (${JSON.stringify(Object.fromEntries(Object.keys(GOLDEN).map(id => [id, golden[id]])))})`);
 }
 
 console.log('\n== 13.1.4 invariant after every dispatch + sim vs evaluator agreement ==');
@@ -119,7 +177,8 @@ console.log('\n== 13.1.4 invariant after every dispatch + sim vs evaluator agree
   let invariantViolations = 0, disagreements = 0, games = 0, simWins = 0, evalWins = 0, dispatches = 0;
   for (const lv of LEVELS) {
     const { cols, lanes: L, cap } = GEN.lanesOf(lv);
-    for (let g = 0; g < 200; g++) {
+    const G_N = lv.pinned ? 200 : (quick ? 10 : 40);
+    for (let g = 0; g < G_N; g++) {
       games++;
       const rng = makeRng(C.hashSeed(`agree:${lv.id}:${g}`));
       const sim = createSim(lv);
@@ -163,7 +222,7 @@ console.log('\n== Phase 3 generator acceptance ==');
   for (const preset of presets) {
     let pass = 0, fails = 0;
     for (let i = 0; i < N; i++) {
-      const art = LEVELS[i % LEVELS.length].art;
+      const art = ART_LIST[i % ART_LIST.length].art;
       const rng = makeRng(C.hashSeed(`gen:${preset}:${i}`));
       const p = GEN.PRESETS[preset];
       const cols = C.columns(art);
@@ -196,14 +255,15 @@ console.log('\n== Phase 3 generator acceptance ==');
   // full mode uses the game's own defaults (what the 🎲 tile runs); quick mode shrinks the budget for a fast smoke run
   const budget = quick ? { candidates: 20, playouts: 40 } : {};
   let maxMs = 0;
-  for (const lv of LEVELS) {
+  for (const lv of ART_LIST) {
     for (const preset of Object.keys(GEN.PRESETS)) {
       // best of two runs: the plan's 400 ms is a cost target for the generator, not a GC-pause lottery
       let ms = Infinity, level = null;
       for (let r = 0; r < 2; r++) { const t0 = performance.now(); const lv2 = GEN.generateLevel({ art: lv.art, preset, seed: C.hashSeed(`sel:${lv.id}:${preset}`), ...budget }); ms = Math.min(ms, performance.now() - t0); level = level || lv2; }
       maxMs = Math.max(maxMs, ms);
       const p = GEN.PRESETS[preset];
-      const expected = reach[lv.id][preset];
+      const expected = reach[lv.id] ? reach[lv.id][preset] : null;
+      if (expected === null) { console.log(`INFO  ${lv.id.padEnd(10)} ${preset.padEnd(8)} achieved=${fmt(level.achieved)} target=${p.target}${p.targetIsCeiling ? '(ceiling)' : ''} greedyWins=${level.greedyWins} (${ms.toFixed(0)} ms; no Appendix B figure)`); continue; }
       const reachable = p.targetIsCeiling ? expected <= p.target + 0.02 : Math.abs(expected - p.target) <= 0.05; // Appendix B: '±0.10 wherever that art can reach it'
       const within = p.targetIsCeiling ? level.achieved <= p.target + 0.10 : Math.abs(level.achieved - p.target) <= 0.10;
       const nearAppendix = Math.abs(level.achieved - expected) <= 0.15;
@@ -213,13 +273,13 @@ console.log('\n== Phase 3 generator acceptance ==');
   }
   if (timing) ok(maxMs < 400, `generation time max ${maxMs.toFixed(0)} ms (< 400 ms target)`); else console.log(`INFO  generation time max ${maxMs.toFixed(0)} ms (plan target < 400 ms on desktop; run with --timing to assert it)`);
   // determinism: same seed → identical lanes
-  const a = GEN.generateLevel({ art: LEVELS[1].art, preset: 'medium', seed: 12345, candidates: 10, playouts: 20 });
-  const b = GEN.generateLevel({ art: LEVELS[1].art, preset: 'medium', seed: 12345, candidates: 10, playouts: 20 });
+  const a = GEN.generateLevel({ art: ARTS.chick.art, preset: 'medium', seed: 12345, candidates: 10, playouts: 20 });
+  const b = GEN.generateLevel({ art: ARTS.chick.art, preset: 'medium', seed: 12345, candidates: 10, playouts: 20 });
   ok(JSON.stringify(a.lanes) === JSON.stringify(b.lanes) && a.achieved === b.achieved, 'same seed → identical lanes and rating');
-  const c = GEN.generateLevel({ art: LEVELS[1].art, preset: 'medium', seed: 12346, candidates: 10, playouts: 20 });
+  const c = GEN.generateLevel({ art: ARTS.chick.art, preset: 'medium', seed: 12346, candidates: 10, playouts: 20 });
   ok(JSON.stringify(a.lanes) !== JSON.stringify(c.lanes), 'different seed → different lanes');
   // yoink: reverse:true lanes solve the reversed sim
-  const y = GEN.generateLevel({ art: LEVELS[2].art, preset: 'easy', seed: 7, reverse: true, candidates: 10, playouts: 20 });
+  const y = GEN.generateLevel({ art: ARTS.mushroom.art, preset: 'easy', seed: 7, reverse: true, candidates: 10, playouts: 20 });
   const ysim = createSim(y);                       // mode derived from level.reverse
   ok(ysim.mode === 'yoink' && ysim.checkInvariant().ok, 'yoink generated level opens as a yoink sim with the invariant intact');
   // replay the generator's reference line through the yoink sim: it must win, and every placement must be the topmost remaining block
@@ -230,6 +290,73 @@ console.log('\n== Phase 3 generator acceptance ==');
       sim.arrive(cat.id); }
     ok(bad === 0 && sim.status === 'won', `yoink: reference line wins in the reversed sim, plucking the topmost block each time (${y.ref.length} moves)`); }
   { const ysolve = GEN.solve(GEN.lanesOf(y, true).cols, GEN.lanesOf(y, true).lanes, 5); ok(ysolve.solvable, 'yoink level is solvable for the turn-based solver too'); }
+}
+
+console.log('\n== daily (plan §2.2) ==');
+{
+  const d1 = Date.UTC(2026, 8, 24, 5), d1b = Date.UTC(2026, 8, 24, 23, 59), d2 = Date.UTC(2026, 8, 25, 0, 0, 1);
+  ok(DAILY.number(d1) === 1 && DAILY.number(d1b) === 1 && DAILY.number(d2) === 2 && DAILY.key(d1b) === '2026-09-24' && DAILY.key(d2) === '2026-09-25', 'day numbers and keys follow the UTC date (2026-09-24 is day 1)');
+  ok(DAILY.artFor(1) === 'chick' && DAILY.artFor(15) === 'house' && DAILY.artFor(16) === 'chick' && ![...Array(40)].some((_, i) => DAILY.artFor(i + 1) === 'heart'), 'the art rotates through the fifteen pictures that are not the tutorial heart');
+  const a = DAILY.def(d1), b = DAILY.def(d1b), c = DAILY.def(d2);
+  ok(a.id === 'daily-2026-09-24' && JSON.stringify(a.lanes) === JSON.stringify(b.lanes) && a.preset === 'medium' && a.daily.n === 1 && a.artId === 'chick', `the same UTC date generates the same level everywhere (${a.id}: ${a.lanes.length} lanes, rated ${fmt(a.achieved)}, ${a.ref.length} dispatches)`);
+  ok(c.id === 'daily-2026-09-25' && c.artId === 'mushroom' && JSON.stringify(c.lanes) !== JSON.stringify(a.lanes), 'the next day is a different level with the next picture');
+  ok(a.daily.layout === layoutHash(a.art, a.lanes) && a.daily.layout !== c.daily.layout, 'the daily carries its layout hash, the identity a stored result is checked against');
+  { const off = []; for (let n = 1; n <= 30; n++) { const d = DAILY.def(DAILY.EPOCH + (n - 1) * 86400000).ref.length; if (d < 25 || d > 40) off.push(`#${n}:${d}`); }
+    ok(off.length === 0, `the first thirty dailies all sit in the 25–40 dispatch band${off.length ? ' (NOT: ' + off.join(', ') + ')' : ''}`); }
+  { const sim = createSim(a); const idOf = {}; let bad = false;
+    for (const k of a.ref) { let cat; if (k in idOf) cat = sim.catById(idOf[k]); else { const [li] = a.where[k]; cat = sim.lanes[li][0]; idOf[k] = cat.id; } if (!sim.dispatch(cat.id).ok) { bad = true; break; } sim.arrive(cat.id); }
+    ok(!bad && sim.status === 'won', `day 1's reference line wins in the sim (${a.ref.length} dispatches)`); }
+  // the emoji picture: one square per cell, rows intact, no two colours of a picture sharing a square
+  const clashes = ART_LIST.filter(({ art }) => { const v = Object.values(DAILY.emojiMap(art)); return new Set(v).size !== v.length; }).map(a => a.id);
+  ok(clashes.length === 0, `every picture maps its colours to distinct squares${clashes.length ? ' (NOT: ' + clashes.join(', ') + ')' : ''}`);
+  const grid = DAILY.emojiGrid(ARTS.heart.art), rows = grid.split('\n');
+  ok(rows.length === ARTS.heart.art.length && rows.every((r, i) => [...r].length === ARTS.heart.art[i].length) && /^[🟥🟧🟨🟩🟦🟪⬛⬜🟫]+$/u.test(rows.join('')), `the heart is an ${[...rows[0]].length}×${rows.length} grid of squares`);
+  ok(DAILY.emojiMap(ARTS.ghost.art).N === '🟥' && DAILY.emojiMap(ARTS.heart.art).N === '🟪', 'bubblegum borrows purple, or red when the picture already has purple');
+  const text = DAILY.shareText({ n: 12, timeSec: 72.4, boxes: 3, attempts: 2, art: ARTS.heart.art });
+  ok(text.startsWith('Shelf Control #12 · 1:12 · 3 boxes · try 2\n') && text.split('\n').length === 1 + ARTS.heart.art.length, 'share text: number, time, boxes, tries, then the picture');
+  ok(DAILY.shareText({ n: 1, timeSec: 59.6, boxes: 1, attempts: 1, art: ARTS.heart.art }).startsWith('Shelf Control #1 · 1:00 · 1 box\n'), 'one box, first try: no plural, no try count');
+  const s0 = { streak: 0, best: 0, lastWon: 0 }, s1 = DAILY.streakAfter(s0, 10), s2 = DAILY.streakAfter(s1, 11), s3 = DAILY.streakAfter(s2, 11), s4 = DAILY.streakAfter(s3, 13);
+  ok(s1.streak === 1 && s2.streak === 2 && s3.streak === 2 && s4.streak === 1 && s4.best === 2 && s4.lastWon === 13, 'streaks: consecutive days extend, a repeat changes nothing, a gap restarts, best is kept');
+  const day = (n) => DAILY.EPOCH + (n - 1) * 86400000;
+  ok(DAILY.alive(s2, day(11)) === 2 && DAILY.alive(s2, day(12)) === 2 && DAILY.alive(s2, day(13)) === 0, 'a streak shows today and tomorrow, then lapses');
+}
+
+console.log('\n== service worker (plan §2.4) ==');
+{
+  const src = fs.readFileSync(path.join(here, '..', 'sw.js'), 'utf8');
+  const KEYS = ['shelf-control-_shelf_control_-aaa1111', 'shelf-control-_shelf_control_test_-bbb2222', 'shelf-control-_shelf_control_-ccc3333', 'unrelated'];
+  const runWorker = (scopePath, version) => {
+    const handlers = {}, deleted = [];
+    const caches = { keys: async () => KEYS.slice(), delete: async (k) => { deleted.push(k); return true; }, open: async () => ({ addAll: async () => {}, put: async () => {}, match: async () => undefined }) };
+    const self = { addEventListener: (t, f) => { handlers[t] = f; }, skipWaiting: async () => {}, clients: { claim: async () => {} }, registration: { scope: 'https://example.test' + scopePath }, location: { origin: 'https://example.test' } };
+    vm.runInNewContext(src.replace("const VERSION = 'dev';", `const VERSION = '${version}';`), { self, caches, URL, console }, { filename: 'sw.js' });
+    return { deleted, activate: async () => { let p; handlers.activate({ waitUntil: (x) => { p = x; } }); await p; } };
+  };
+  const live = runWorker('/shelf-control/', 'ccc3333'); await live.activate();
+  ok(live.deleted.length === 1 && live.deleted[0] === 'shelf-control-_shelf_control_-aaa1111', `the live worker retires only its own scope's older cache (${live.deleted.join(', ')})`);
+  const test = runWorker('/shelf-control/test/', 'ddd4444'); await test.activate();
+  ok(test.deleted.length === 1 && test.deleted[0] === 'shelf-control-_shelf_control_test_-bbb2222', `the /test/ worker retires only its own scope's older cache (${test.deleted.join(', ')})`);
+}
+
+console.log('\n== deploy assembly (tools/assemble.sh) ==');
+{
+  const root = path.join(here, '..'), tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sc-assemble-'));
+  let failed = null;
+  try { execFileSync('bash', [path.join(root, 'tools', 'assemble.sh'), root, path.join(tmp, 'live'), 'live'], { stdio: 'pipe' }); execFileSync('bash', [path.join(root, 'tools', 'assemble.sh'), root, path.join(tmp, 'test'), 'test'], { stdio: 'pipe' }); }
+  catch (e) { failed = String(e.stderr || e.message); }
+  ok(!failed, `both builds assemble${failed ? ': ' + failed.slice(0, 200) : ''}`);
+  if (!failed) {
+    const live = fs.readFileSync(path.join(tmp, 'live', 'index.html'), 'utf8'), test = fs.readFileSync(path.join(tmp, 'test', 'index.html'), 'utf8');
+    ok(/^const BUILD = \{ channel: 'live' \};$/m.test(live) && !/channel: 'dev'/.test(live) && /^const BUILD = \{ channel: 'dev' \};$/m.test(test), 'the live build flips the channel line; the test build keeps the dev channel');
+    ok(/content="Shelf Control">/.test(live) && /content="SC test">/.test(test), 'the test build carries the SC test Apple title, the live build the real one');
+    const lm = JSON.parse(fs.readFileSync(path.join(tmp, 'live', 'manifest.webmanifest'), 'utf8')), tm = JSON.parse(fs.readFileSync(path.join(tmp, 'test', 'manifest.webmanifest'), 'utf8'));
+    ok(lm.name === 'Shelf Control' && tm.name === 'Shelf Control (test)' && tm.short_name === 'SC test', 'the test manifest is renamed, the live one is not');
+    const ver = (d) => (/^const VERSION = '([^']+)';$/m.exec(fs.readFileSync(path.join(tmp, d, 'sw.js'), 'utf8')) || [])[1];
+    ok(ver('live') && ver('live') !== 'dev' && ver('test') === ver('live'), `the worker's cache version is stamped (${ver('live')})`);
+    ok(['icon-192.png', 'icon-512.png', 'maskable-512.png', 'apple-touch-icon.png'].every(f => fs.existsSync(path.join(tmp, 'test', 'icons', f))), 'the icons ship with the build');
+    { let threw = false; try { execFileSync('bash', [path.join(root, 'tools', 'assemble.sh'), root, path.join(tmp, 'bad'), 'staging'], { stdio: 'pipe' }); } catch (e) { threw = true; } ok(threw, 'an unknown channel is refused'); }
+  }
+  fs.rmSync(tmp, { recursive: true, force: true });
 }
 
 console.log(`\n${failures === 0 ? 'ALL PASS' : failures + ' FAILURE(S)'}`);
