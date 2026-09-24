@@ -71,17 +71,20 @@ CURVE.forEach((entry, i) => {
   const candidates = Object.keys(ARTS).filter(a => !chapterArts[chapter].has(a) && uses[a] < MAX_USES)
     .sort((a, b) => uses[a] - uses[b] || (a < b ? -1 : 1));
   const pool = candidates.slice(0, ARTS_PER_SLOT);
-  let best = null, nearest = null, nearestBoss = null;
+  let best = null, nearest = null, nearestBoss = null, nearestCeil = null;
+  const ceiling = boss && GEN.PRESETS[presetName].targetIsCeiling;   // a hard boss: the plan's ≤ 5 % is binding, not the generator's ±0.10 band
   for (const artId of pool) for (let seed = 1; seed <= SEEDS; seed++) {
     const lv = GEN.generateLevel({ art: ARTS[artId].art, artId, preset: presetName, seed, candidates: 48 });
     const d = lv.ref.length, outside = d < BAND[0] ? BAND[0] - d : d > BAND[1] ? d - BAND[1] : 0;
     if (outside && !ALLOW_OFF_BAND) { if (!nearest || outside < nearest.outside) nearest = { artId, seed, d, achieved: lv.achieved, outside }; continue; }   // never a candidate
     if (boss && lv.greedyWins) { if (!nearestBoss || Math.abs(lv.achieved - target) < Math.abs(nearestBoss.achieved - target)) nearestBoss = { artId, seed, d, achieved: lv.achieved }; continue; }   // a boss the greedy player solves is not a boss: binding, no override
+    if (ceiling && lv.achieved > target + 1e-9) { if (!nearestCeil || lv.achieved < nearestCeil.achieved) nearestCeil = { artId, seed, d, achieved: lv.achieved }; continue; }   // above the ceiling: not a hard boss, no override
     const score = Math.abs(lv.achieved - target) + (outside ? 0.5 + 0.02 * outside : 0) + 0.03 * uses[artId];
     if (!best || score < best.score) best = { score, lv, artId, seed, outside };
   }
   if (!best) {
-    if (boss && nearestBoss && !nearest) unfillable.push(`level ${n} (boss, target ${target}): every candidate is greedy-solvable; nearest ${nearestBoss.artId} seed ${nearestBoss.seed} rated ${nearestBoss.achieved.toFixed(2)}. Try more --seeds or --arts; there is no override for the boss rule`);
+    if (boss && nearestBoss && !nearest && !nearestCeil) unfillable.push(`level ${n} (boss, target ${target}): every candidate is greedy-solvable; nearest ${nearestBoss.artId} seed ${nearestBoss.seed} rated ${nearestBoss.achieved.toFixed(2)}. Try more --seeds or --arts; there is no override for the boss rule`);
+    else if (ceiling && nearestCeil && !nearest) unfillable.push(`level ${n} (hard boss, ceiling ${target}): no greedy-losing candidate at or below the ceiling; lowest ${nearestCeil.artId} seed ${nearestCeil.seed} rated ${nearestCeil.achieved.toFixed(3)}. Try more --seeds or --arts; there is no override for the ceiling`);
     else unfillable.push(`level ${n} (target ${target}${boss ? ', boss' : ''}): no candidate inside ${BAND[0]}–${BAND[1]} dispatches${boss ? ' that the greedy player loses' : ''}; nearest ${nearest ? `${nearest.artId} seed ${nearest.seed} at ${nearest.d} (rated ${nearest.achieved.toFixed(2)})` : 'none'}`);
     return;
   }

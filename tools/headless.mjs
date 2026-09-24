@@ -118,6 +118,8 @@ for (const lv of PINNED) {
   ok(greedyOff.length === 0, `baked greedy flags hold${greedyOff.length ? ' (off: ' + greedyOff.join(', ') + ')' : ''}`);
   const bosses = CURATED.filter(l => l.curve && l.curve.boss);
   ok(bosses.length > 0 && bosses.every(l => !l.rating.greedyWins), `every chapter boss needs lookahead (${bosses.map(l => l.id).join(', ')})`);
+  const hardBosses = bosses.filter(l => l.curve.target <= 0.05);
+  ok(hardBosses.every(l => l.rating.randomWin <= l.curve.target), `every hard boss is rated at or below its 5 % ceiling (${hardBosses.map(l => `${l.id} ${l.rating.randomWin}`).join(', ')})`);
 }
 
 console.log('\n== 13.1.3 determinism ==');
