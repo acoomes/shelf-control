@@ -46,9 +46,10 @@ async function open(opts = {}) {
   const errors = [];
   page.on('console', m => { if (m.type() === 'error' && !/ERR_CERT|fonts\.g/.test(m.text())) errors.push(m.text()); });
   page.on('pageerror', e => errors.push(e.message));
-  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
+  const t0 = new Date(opts.time || '2026-01-01T00:00:00Z');
+  await page.clock.install({ time: t0 });
   await page.goto(PAGE_URL + (opts.query || ''));
-  await page.clock.pauseAt(new Date('2026-01-01T00:00:01Z'));   // frozen between calls: no real-time drift in the game clock
+  await page.clock.pauseAt(new Date(t0.getTime() + 1000));   // frozen between calls: no real-time drift in the game clock
   await page.clock.runFor(300);
   // With the clock paused, Playwright's own rAF-polling waits (page.click / textContent on selectors) would hang, so
   // DOM interaction goes through evaluate(): clickSel finds an element (optionally by text or index) and clicks it.
@@ -119,6 +120,7 @@ const scenarios = {
       ok(s.status === 'won' && s.landed === s.total, `level ${i + 1} (${await api.page.evaluate(() => SC.Game.def.name)}) won along the solver line: ${n} moves, ${s.stats.dispatches} dispatches, playTime ${await api.page.evaluate(() => SC.Game.playTime.toFixed(1))}s`);
     }
     const tele = await api.page.evaluate(() => SC.telemetry());
+    ok(tele.every(r => r.standalone === false && r.daily === null && r.attempt === null), 'curated records carry standalone:false and no daily fields');
     ok(tele.length === 6 && tele.every(r => r.result === 'won' && typeof r.timeSec === 'number'), `six telemetry records: ${tele.map(r => `${r.level}:${r.timeSec}s/${r.dispatches}d/${r.maxBoxesUsed}b`).join(' ')}`);
   },
   async grace(api) {
@@ -381,6 +383,53 @@ const scenarios = {
     ok(s.keys.length === 1 && s.keys[0] === live, `a stale id from an earlier bake is dropped at boot and the live one kept (${s.keys.join(', ')})`);
     ok(s.doneTiles.length === 1 && /^2\. /.test(s.doneTiles[0]), `the level select shows exactly that level done (${s.doneTiles.join(', ')})`);
   },
+  async daily(api) {
+    // one generated level per UTC date (plan §2.2): the tile names the day, the level is DAILY.def's, a win keeps a streak, share text carries the emoji picture
+    const info = await api.page.evaluate(() => { const now = Date.now(); const d = SC.DAILY.def(now); return { n: SC.DAILY.number(now), key: SC.DAILY.key(now), id: d.id, lanes: d.lanes, tile: document.querySelector('#daily .tile .name').textContent, meta: document.querySelector('#daily .tile .meta').textContent }; });
+    ok(info.tile === `Daily #${info.n}` && /same for everyone/.test(info.meta), `the select screen offers ${info.tile} for ${info.key} (${info.meta})`);
+    await api.clickSel('#daily .tile'); await api.run(100);
+    const st = await api.page.evaluate(() => ({ id: SC.Game.def.id, lanes: SC.Game.def.lanes, title: document.querySelector('#hud-title').textContent, attempts: JSON.parse(localStorage.getItem('sc.daily')).attempts }));
+    ok(st.id === info.id && JSON.stringify(st.lanes) === JSON.stringify(info.lanes) && st.title.startsWith(`Daily #${info.n}`), `tapping it starts ${st.id} with the lanes DAILY.def gives (title "${st.title}")`);
+    ok(st.attempts[info.key] === 1, 'the attempt is counted');
+    // share targets: no system sheet here, a clipboard that records what it was given
+    await api.page.evaluate(() => { window.__shared = null; Object.defineProperty(navigator, 'share', { value: undefined, configurable: true }); Object.defineProperty(navigator, 'clipboard', { value: { writeText: (t) => { window.__shared = t; return Promise.resolve(); } }, configurable: true }); });
+    const n = await playSolution(api); await api.run(1800);
+    const s = await api.snap(); const card = await api.text('#panel');
+    ok(s.status === 'won' && new RegExp(`Daily #${info.n} done!`).test(card) && /Come back tomorrow/.test(card), `won along the solver line (${n} moves); the card says Daily #${info.n} done and mentions tomorrow`);
+    await api.clickSel('#panel .btn.good'); await api.run(100);   // Share
+    const r = await api.page.evaluate(() => { const k = SC.DAILY.key(Date.now()), w = SC.daily.wins[k]; return { shared: window.__shared, expected: SC.DAILY.shareText({ n: SC.DAILY.number(Date.now()), timeSec: w.timeSec, boxes: w.boxes, attempts: w.attempts, art: SC.Game.def.art }), d: SC.daily, btn: document.querySelector('#panel .btn.good').textContent, rec: SC.telemetry()[0] }; });
+    ok(r.shared === r.expected && /^Shelf Control #\d+ · \d+:\d\d · \d+ box/.test(r.shared) && /[🟥🟧🟨🟩🟦🟪⬛⬜🟫]/u.test(r.shared), `Share copied the Wordle-style text with the emoji picture (${r.shared.split('\n')[0]})`);
+    ok(r.btn === 'Copied!' && r.d.streak === 1 && r.d.lastWon === info.n && r.d.wins[info.key].attempts === 1, `the button says Copied!, streak 1, the win is stored (${JSON.stringify(r.d.wins[info.key])})`);
+    ok(r.rec.daily === info.n && r.rec.attempt === 1 && r.rec.level === info.id, 'the telemetry record carries the day number and the attempt');
+    await api.clickSel('#panel .btn', 1); await api.run(50);   // Levels
+    const tile = await api.text('#daily .tile');
+    ok(/Done in \d+:\d\d/.test(tile) && /Share/.test(tile), `the daily tile now shows the result and a Share button (${tile.replace(/\s+/g, ' ').trim()})`);
+    await api.clickSel('#daily .tile'); await api.run(100);
+    const again = await api.page.evaluate(() => JSON.parse(localStorage.getItem('sc.daily')));
+    ok(again.attempts[info.key] === 2 && again.streak === 1 && again.wins[info.key].attempts === 1, 'a replay counts a second attempt; the streak and the stored result stay');
+    ok((await api.page.evaluate(() => Object.keys(SC.daily.wins).some(k => k in JSON.parse(localStorage.getItem('sc.progress')).done))) === false, 'the daily never writes into the chapter progress');
+  },
+  async pwa(api) {
+    // installable (plan §2.4): manifest and icons in place, no worker from a file:// open, a home-screen hint after the second session, standalone launches counted
+    const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.webmanifest'), 'utf8'));
+    const icons = manifest.icons.map(i => i.src), missing = icons.filter(i => !fs.existsSync(path.join(root, i)));
+    ok(manifest.display === 'standalone' && manifest.start_url.includes('standalone=1') && icons.length >= 3 && missing.length === 0 && manifest.icons.some(i => i.purpose === 'maskable'), `manifest: standalone, start_url flags the launch, ${icons.length} icons present including a maskable one`);
+    ok(fs.existsSync(path.join(root, 'sw.js')) && fs.existsSync(path.join(root, 'icons', 'apple-touch-icon.png')), 'sw.js and the apple touch icon exist');
+    const head = await api.page.evaluate(() => ({ manifest: !!document.querySelector('link[rel=manifest]'), apple: !!document.querySelector('link[rel=apple-touch-icon]'), standalone: SC.standalone, sessions: SC.sessions.count, hint: document.querySelector('#a2hs').classList.contains('hidden') }));
+    ok(head.manifest && head.apple && head.standalone === false && head.sessions === 1 && head.hint, `the page links the manifest and touch icon; a file:// open is a first, non-standalone session with no hint (${JSON.stringify(head)})`);
+    const ctx = api.page.context();
+    const p2 = await ctx.newPage(); p2.on('pageerror', e => api.errors.push(e.message)); await p2.goto(PAGE_URL); await p2.waitForFunction(() => window.SC);
+    const h2 = await p2.evaluate(() => ({ hidden: document.querySelector('#a2hs').classList.contains('hidden'), text: document.querySelector('#a2hs').textContent, count: SC.sessions.count }));
+    ok(!h2.hidden && /home screen/i.test(h2.text) && h2.count === 2, `second session: the hint shows (${h2.text.trim().slice(0, 70)})`);
+    await p2.evaluate(() => document.querySelector('#a2hs .btn.secondary').click());
+    ok(await p2.evaluate(() => document.querySelector('#a2hs').classList.contains('hidden') && JSON.parse(localStorage.getItem('sc.sessions')).a2hsDismissed === true), 'dismissing hides it and is remembered');
+    await p2.close();
+    const p3 = await ctx.newPage(); p3.on('pageerror', e => api.errors.push(e.message)); await p3.goto(PAGE_URL + '?standalone=1'); await p3.waitForFunction(() => window.SC);
+    const h3 = await p3.evaluate(() => ({ standalone: SC.standalone, n: SC.sessions.standalone, hidden: document.querySelector('#a2hs').classList.contains('hidden') }));
+    ok(h3.standalone === true && h3.n === 1 && h3.hidden, 'a ?standalone=1 launch counts as a home-screen session and shows no hint');
+    await p3.close();
+  },
   async autoFinish(api) {
     // the last cat with blocks left laps the shelf by itself, fast, instead of resting in a box and waiting for the same tap again
     await api.start(FIX.autoFin);
@@ -444,7 +493,7 @@ const names = wanted.length ? wanted : Object.keys(scenarios);
 for (const name of names) {
   if (!scenarios[name]) { console.log(`unknown scenario ${name}`); failures++; continue; }
   console.log(`\n== ${name} ==`);
-  const api = await open({ reducedMotion: name === 'reduced', dpr: name === 'allLevels' ? 1 : 2, query: name === 'liveBuild' ? '?debug=0' : '' });
+  const api = await open({ reducedMotion: name === 'reduced', dpr: name === 'allLevels' ? 1 : 2, query: name === 'liveBuild' ? '?debug=0' : '', time: name === 'daily' ? '2026-10-05T12:00:00Z' : undefined });
   try { await scenarios[name](api); } catch (e) { ok(false, `${name} threw: ${e.stack || e}`); }
   const errs = api.errors;
   ok(errs.length === 0, errs.length ? `console errors: ${errs.join(' | ').slice(0, 300)}` : 'no console errors');

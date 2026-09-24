@@ -7,7 +7,7 @@ Companion to `shelf-control-prototype-plan.md` (v1). That document asked whether
 - Live: `https://andrewcoomes.com/shelf-control/` (`main`, developer tools off). Test: `https://andrewcoomes.com/shelf-control/test/` (`dev`, developer tools on). Pipeline: feature branch → PR into `dev` → play it on `/test/` → PR `dev` into `main`.
 - Shipped since the prototype: iPhone audio unlock, closable debug overlay, ready-cat cue, auto-finish, two-build deploy.
 - Left open by the prototype plan: **H1** (build vs teardown) was never put in front of people even though the yoink mode exists; **H3** (legible in ten seconds, no text) is untested; **H4** telemetry exists only behind a copy button.
-- Known debt: one settings toggle reported as doing nothing (name unknown); the Pages source should be *GitHub Actions* so GitHub's branch build stops racing the workflow.
+- Known debt: one settings toggle reported as doing nothing (name unknown). (The Pages source was switched to *GitHub Actions* on 2026-09-24, which ended the branch build racing the workflow.)
 
 ## 1. The one question this iteration answers
 
@@ -56,7 +56,7 @@ Acceptance: installable per Lighthouse; launches from the home screen offline; t
 
 - The setting that does nothing (needs its name; Assist and Motion are the candidates).
 - Confirm iPhone sound on the live build after the unlock fix; if it still fails, the ring/silent switch is next.
-- Reduced motion: auto-finish should be glow-only, no hop.
+- Reduced motion: auto-finish should be glow-only, no hop. (Done in slice 2: the turn-round glides under reduced motion; the ready-cat cue was already glow-only.)
 - Bump the workflow actions when their Node 24 releases land; the warnings are noise until then.
 
 ## 3. Explicitly not in iteration 2

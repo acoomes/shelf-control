@@ -19,9 +19,17 @@ Keys on desktop: `D` toggles the debug overlay, `R` restarts, `Esc` closes dialo
 | `main` | `https://<owner>.github.io/shelf-control/` | off |
 | `dev` | `https://<owner>.github.io/shelf-control/test/` | on, and the level select says *test build* |
 
-Shipping is a merge from `dev` into `main`. One-time setup: in the repository settings, under *Pages*, set *Source* to *GitHub Actions*; until a `dev` branch exists, `/test/` mirrors `main`. The `github-pages` environment only accepts deployments from `main`, so a push to `dev` does not deploy by itself: it dispatches the `main` copy of the workflow, which publishes both builds.
+Shipping is a merge from `dev` into `main`. The repository's *Pages* source is *GitHub Actions* (set on 2026-09-24; with the older branch source GitHub's own build raced the workflow and `/test/` came and went). Until a `dev` branch exists, `/test/` mirrors `main`. The `github-pages` environment only accepts deployments from `main`, so a push to `dev` does not deploy by itself: it dispatches the `main` copy of the workflow, which publishes both builds. Each build ships with its installable-app files (see below); the deploy stamps the commit into the service worker's cache version and names the test build's app *Shelf Control (test)* so the two can be installed side by side.
 
 The two builds are the same file. The source is the dev channel; the deploy rewrites the single line `const BUILD = { channel: 'dev' };` to `'live'` for the root URL and fails if that line is not found. Developer tools are the debug overlay (settings → 🐞 Debug, or `D`), the seed field in the generated chooser, and the *test build* label; without the seed field every *Generate* draws a fresh seed. `?debug=1` turns all of them on for any URL and `?debug=0` turns them off, which is how to preview the live build from a local file.
+
+## Daily level and share
+
+One generated level per UTC date, the same on every device: the art rotates through the `ARTS` table (day 1, 2026-09-24, is the heart), the preset is medium, the seed is the date, and the reference tray limit is the plan's default rather than the debug slider's, so two devices never disagree. The level select shows it above the chapters with the day's number, its picture and the result. Retries are allowed and counted; the first win is the result, as the genre does it. A streak counts consecutive UTC days with a win and survives until the day after the last one ends. *Share* on the win card and the tile produces `Shelf Control #12 · 1:12 · 3 boxes` (plus `· try 2` when it took more than one) followed by the finished picture as an emoji grid, squares only so the rows line up; a colour without a square of its own borrows one no other colour in that picture uses. `navigator.share` where it exists, the clipboard otherwise, a selectable box when even that is blocked. Daily results carry `daily` (the day number) and `attempt` in telemetry. The arithmetic (`DAILY` in the core script) is pure and covered by the headless suite; the play-through by the `daily` e2e scenario.
+
+## Installable
+
+`manifest.webmanifest`, icons in `icons/` (rendered from the game's own cat routine by `node tools/icons.mjs`; re-run it if `drawIcon` changes), and `sw.js`, a service worker that caches the single file and its icons, network first so a deploy lands on the next online load and cache when offline. The worker registers only over http(s), never from a `file://` open, so the browser suite runs without it. After the second session in a browser tab the level select shows a one-line *add to home screen* hint (Chrome's install prompt where the browser offers one, the Share-sheet route on iOS) until it is dismissed or the app is installed. A launch from the home screen arrives at `./?standalone=1`, counts as a standalone session and carries `standalone: true` in every telemetry record. Still to do by hand on devices, per the plan's audit: safe-area insets, audio unlock in standalone mode, rubber-banding, orientation.
 
 ## Test it
 
@@ -30,6 +38,7 @@ node tools/headless.mjs          # plan §13.1 + Phase 3 acceptance (≈90 s); -
 node tools/e2e.mjs               # Playwright scenarios in a real Chromium (fake clock); SHOTS=dir saves screenshots
 node tools/perf.mjs              # frame times per phase under 4x CPU throttling, plus a CPU profile of a parade
 node tools/curate.mjs            # re-bake the 40-level set from the arts table (≈2 min); --dry prints the curve without writing
+node tools/icons.mjs             # re-render the app icons from the game's cat routine
 ```
 
 The headless suite needs only Node. The other two need Playwright: `npm install` (it is the only devDependency) or a global `npm install -g playwright`, then `npx playwright install chromium`. `npm test` and `npm run e2e` are shorthands.
