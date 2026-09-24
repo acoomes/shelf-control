@@ -4,6 +4,20 @@ Two builds from one file: **live** at `https://andrewcoomes.com/shelf-control/` 
 
 ---
 
+## Iteration 2 · slice 2 — The daily, the share and the home screen
+
+**Status:** test build, into `dev` on 2026-09-24; not yet shipped to `main`.
+
+- **Daily level.** One generated level per UTC date, the same on every device: the art rotates through the sixteen pictures (day 1, 2026-09-24, is the heart), the preset is medium, the seed is the date. It sits above the chapters on the level select with its number, its picture and the result. Retries are allowed and counted; the first win is the result. A streak counts consecutive UTC days with a win.
+- **Share.** *Share* on the win card and the daily tile produces `Shelf Control #12 · 1:12 · 3 boxes` (plus `· try 2` when it took more than one) followed by the finished picture as an emoji grid. The system share sheet where there is one, the clipboard otherwise, a selectable box when even that is blocked.
+- **Installable.** A web app manifest, icons rendered from the game's own cat, and a service worker that caches the single file so the game opens offline after the first load (network first, so a deploy lands on the next online load). After the second session a one-line hint offers the home screen; a launch from there is counted and flagged in telemetry. The test build installs as *Shelf Control (test)* (home-screen label *SC test*), side by side with the live one.
+- **Reduced motion.** The auto-finish turn-round glides instead of hopping; the ready-cat cue was already glow-only.
+- Telemetry records gain `daily`, `attempt` and `standalone`.
+
+Still by hand, per the plan's audit: safe-area insets, audio unlock and rubber-banding in standalone mode on iOS and Android, and the share sheet on both.
+
+---
+
 ## Iteration 2 · slice 1 — Forty levels
 
 **Status:** test build. [PR #5](https://github.com/acoomes/shelf-control/pull/5) into `dev`, 2026-09-24; not yet shipped to `main`.

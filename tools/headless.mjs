@@ -16,7 +16,7 @@ if (!m) { console.error('core script not found'); process.exit(2); }
 const sandbox = { module: { exports: {} }, console };
 vm.runInNewContext(m[1], sandbox, { filename: 'core.js' });
 const C = sandbox.module.exports;
-const { ARTS, LEVELS, BACKTEST, GEN, createSim, makeRng, loadLevel, validateBakedLevels, layoutHash } = C;
+const { ARTS, LEVELS, BACKTEST, GEN, createSim, makeRng, loadLevel, validateBakedLevels, layoutHash, DAILY } = C;
 const PINNED = LEVELS.filter(l => l.pinned), CURATED = LEVELS.filter(l => !l.pinned);   // six Appendix B references + the curated rest
 const ART_LIST = Object.entries(ARTS).map(([id, a]) => ({ id, art: a.art }));
 
@@ -288,6 +288,49 @@ console.log('\n== Phase 3 generator acceptance ==');
       sim.arrive(cat.id); }
     ok(bad === 0 && sim.status === 'won', `yoink: reference line wins in the reversed sim, plucking the topmost block each time (${y.ref.length} moves)`); }
   { const ysolve = GEN.solve(GEN.lanesOf(y, true).cols, GEN.lanesOf(y, true).lanes, 5); ok(ysolve.solvable, 'yoink level is solvable for the turn-based solver too'); }
+}
+
+console.log('\n== daily (plan §2.2) ==');
+{
+  const d1 = Date.UTC(2026, 8, 24, 5), d1b = Date.UTC(2026, 8, 24, 23, 59), d2 = Date.UTC(2026, 8, 25, 0, 0, 1);
+  ok(DAILY.number(d1) === 1 && DAILY.number(d1b) === 1 && DAILY.number(d2) === 2 && DAILY.key(d1b) === '2026-09-24' && DAILY.key(d2) === '2026-09-25', 'day numbers and keys follow the UTC date (2026-09-24 is day 1)');
+  ok(DAILY.artFor(1) === 'heart' && DAILY.artFor(16) === 'house' && DAILY.artFor(17) === 'heart', 'the art rotates through the sixteen pictures');
+  const a = DAILY.def(d1), b = DAILY.def(d1b), c = DAILY.def(d2);
+  ok(a.id === 'daily-2026-09-24' && JSON.stringify(a.lanes) === JSON.stringify(b.lanes) && a.preset === 'medium' && a.daily.n === 1 && a.artId === 'heart', `the same UTC date generates the same level everywhere (${a.id}: ${a.lanes.length} lanes, rated ${fmt(a.achieved)})`);
+  ok(c.id === 'daily-2026-09-25' && c.artId === 'chick' && JSON.stringify(c.lanes) !== JSON.stringify(a.lanes), 'the next day is a different level with the next picture');
+  { const sim = createSim(a); const idOf = {}; let bad = false;
+    for (const k of a.ref) { let cat; if (k in idOf) cat = sim.catById(idOf[k]); else { const [li] = a.where[k]; cat = sim.lanes[li][0]; idOf[k] = cat.id; } if (!sim.dispatch(cat.id).ok) { bad = true; break; } sim.arrive(cat.id); }
+    ok(!bad && sim.status === 'won', `day 1's reference line wins in the sim (${a.ref.length} dispatches)`); }
+  // the emoji picture: one square per cell, rows intact, no two colours of a picture sharing a square
+  const clashes = ART_LIST.filter(({ art }) => { const v = Object.values(DAILY.emojiMap(art)); return new Set(v).size !== v.length; }).map(a => a.id);
+  ok(clashes.length === 0, `every picture maps its colours to distinct squares${clashes.length ? ' (NOT: ' + clashes.join(', ') + ')' : ''}`);
+  const grid = DAILY.emojiGrid(ARTS.heart.art), rows = grid.split('\n');
+  ok(rows.length === ARTS.heart.art.length && rows.every((r, i) => [...r].length === ARTS.heart.art[i].length) && /^[🟥🟧🟨🟩🟦🟪⬛⬜🟫]+$/u.test(rows.join('')), `the heart is an ${[...rows[0]].length}×${rows.length} grid of squares`);
+  ok(DAILY.emojiMap(ARTS.ghost.art).N === '🟥' && DAILY.emojiMap(ARTS.heart.art).N === '🟪', 'bubblegum borrows purple, or red when the picture already has purple');
+  const text = DAILY.shareText({ n: 12, timeSec: 72.4, boxes: 3, attempts: 2, art: ARTS.heart.art });
+  ok(text.startsWith('Shelf Control #12 · 1:12 · 3 boxes · try 2\n') && text.split('\n').length === 1 + ARTS.heart.art.length, 'share text: number, time, boxes, tries, then the picture');
+  ok(DAILY.shareText({ n: 1, timeSec: 59.6, boxes: 1, attempts: 1, art: ARTS.heart.art }).startsWith('Shelf Control #1 · 1:00 · 1 box\n'), 'one box, first try: no plural, no try count');
+  const s0 = { streak: 0, best: 0, lastWon: 0 }, s1 = DAILY.streakAfter(s0, 10), s2 = DAILY.streakAfter(s1, 11), s3 = DAILY.streakAfter(s2, 11), s4 = DAILY.streakAfter(s3, 13);
+  ok(s1.streak === 1 && s2.streak === 2 && s3.streak === 2 && s4.streak === 1 && s4.best === 2 && s4.lastWon === 13, 'streaks: consecutive days extend, a repeat changes nothing, a gap restarts, best is kept');
+  const day = (n) => DAILY.EPOCH + (n - 1) * 86400000;
+  ok(DAILY.alive(s2, day(11)) === 2 && DAILY.alive(s2, day(12)) === 2 && DAILY.alive(s2, day(13)) === 0, 'a streak shows today and tomorrow, then lapses');
+}
+
+console.log('\n== service worker (plan §2.4) ==');
+{
+  const src = fs.readFileSync(path.join(here, '..', 'sw.js'), 'utf8');
+  const KEYS = ['shelf-control-_shelf_control_-aaa1111', 'shelf-control-_shelf_control_test_-bbb2222', 'shelf-control-_shelf_control_-ccc3333', 'unrelated'];
+  const runWorker = (scopePath, version) => {
+    const handlers = {}, deleted = [];
+    const caches = { keys: async () => KEYS.slice(), delete: async (k) => { deleted.push(k); return true; }, open: async () => ({ addAll: async () => {}, put: async () => {}, match: async () => undefined }) };
+    const self = { addEventListener: (t, f) => { handlers[t] = f; }, skipWaiting: async () => {}, clients: { claim: async () => {} }, registration: { scope: 'https://example.test' + scopePath }, location: { origin: 'https://example.test' } };
+    vm.runInNewContext(src.replace("const VERSION = 'dev';", `const VERSION = '${version}';`), { self, caches, URL, console }, { filename: 'sw.js' });
+    return { deleted, activate: async () => { let p; handlers.activate({ waitUntil: (x) => { p = x; } }); await p; } };
+  };
+  const live = runWorker('/shelf-control/', 'ccc3333'); await live.activate();
+  ok(live.deleted.length === 1 && live.deleted[0] === 'shelf-control-_shelf_control_-aaa1111', `the live worker retires only its own scope's older cache (${live.deleted.join(', ')})`);
+  const test = runWorker('/shelf-control/test/', 'ddd4444'); await test.activate();
+  ok(test.deleted.length === 1 && test.deleted[0] === 'shelf-control-_shelf_control_test_-bbb2222', `the /test/ worker retires only its own scope's older cache (${test.deleted.join(', ')})`);
 }
 
 console.log(`\n${failures === 0 ? 'ALL PASS' : failures + ' FAILURE(S)'}`);

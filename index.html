@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="theme-color" content="#FFE3EC">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Shelf Control">
 <title>Shelf Control</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap">
@@ -38,6 +44,16 @@ h1{font-weight:700;font-size:38px;margin:0;letter-spacing:.5px;text-shadow:0 2px
 .chap.on.done::after{color:#fff}
 .tile.gen .dice{width:104px;height:84px;border-radius:12px;background:linear-gradient(135deg,#FFD84D,#FF9CCB);display:flex;align-items:center;justify-content:center;font-size:48px}
 .foot{margin:10px 0 0;font-size:13px;opacity:.7}
+#daily{width:100%;margin:0 0 10px}
+.tile.daily{flex-direction:row;align-items:center;gap:12px;padding:8px 12px;text-align:left;width:100%;box-sizing:border-box}
+.tile.daily canvas{flex:0 0 auto}
+.tile.daily .txt{flex:1 1 auto;min-width:0}
+.tile.daily .name{font-size:17px}
+.tile.daily .meta{font-size:12px}
+.tile.daily .share{flex:0 0 auto;padding:8px 12px;font-size:14px}
+#a2hs{width:100%;background:rgba(255,255,255,.72);border-radius:14px;padding:8px 12px;box-sizing:border-box;font-size:13px;display:flex;align-items:center;gap:8px;margin:0 0 10px;text-align:left}
+#a2hs span{flex:1 1 auto}
+#a2hs .btn{padding:6px 10px;font-size:13px}
 button.link{border:0;background:none;font:inherit;color:inherit;text-decoration:underline;cursor:pointer;padding:0}
 .modal{position:absolute;inset:0;background:rgba(51,40,79,.35);display:flex;align-items:center;justify-content:center}
 .panel{background:#FFF9F2;border-radius:24px;padding:22px 20px;width:322px;box-sizing:border-box;box-shadow:0 10px 30px rgba(51,40,79,.3);text-align:center;max-height:780px;overflow:auto}
@@ -82,6 +98,8 @@ button.link{border:0;background:none;font:inherit;color:inherit;text-decoration:
   <div id="select" class="screen">
     <h1>Shelf Control</h1>
     <p class="sub">Tap a cat. Build the picture. Don’t run out of boxes.</p>
+    <div id="a2hs" class="hidden"></div>
+    <div id="daily"></div>
     <div id="chapters"></div>
     <div id="tiles"></div>
     <p class="foot"><span id="foot-label">web prototype</span> · <button id="btn-settings2" class="link" type="button">settings</button></p>
@@ -1071,7 +1089,48 @@ function createSim(level, opts = {}) {
   return sim;
 }
 
-const CORE = { CONFIG, mulberry32, makeRng, hashSeed, layoutHash, PALETTE, SYMBOLS, ARTS, LEVELS, BACKTEST, LevelError, columns, parseLane, laneToString,
+// ============================== DAILY ==============================
+// One generated level per UTC date, the same on every device (plan §2.2): the art rotates through the ARTS table, the
+// preset is medium, the seed is the date. Day 1 is 2026-09-24. Pure, so the headless suite can check determinism; the
+// share text and the streak arithmetic live here for the same reason.
+const DAILY = (() => {
+  const EPOCH = Date.UTC(2026, 8, 24), DAY = 86400000;
+  const ART_ORDER = Object.keys(ARTS);
+  const dayStart = (ms) => Math.floor(ms / DAY) * DAY;
+  const number = (ms) => Math.floor((dayStart(ms) - EPOCH) / DAY) + 1;
+  const key = (ms) => new Date(dayStart(ms)).toISOString().slice(0, 10);
+  const artFor = (n) => ART_ORDER[(((n - 1) % ART_ORDER.length) + ART_ORDER.length) % ART_ORDER.length];
+  function def(ms) {
+    const n = number(ms), k = key(ms), artId = artFor(n);
+    // the reference tray limit is the plan's default, never the debug slider's, or two devices would disagree
+    const level = GEN.generateLevel({ art: ARTS[artId].art, artId, preset: 'medium', seed: hashSeed('daily:' + k), trayCap: 5 });
+    level.id = `daily-${k}`; level.name = ARTS[artId].name; level.daily = { n, key: k, artId };
+    return level;
+  }
+  // the finished picture as an emoji grid: squares only, so the rows line up; a colour with no square of its own borrows one
+  // that no other colour in that picture uses
+  const SQUARES = { R: ['🟥'], O: ['🟧'], Y: ['🟨'], G: ['🟩'], B: ['🟦'], P: ['🟪'], K: ['⬛'], W: ['⬜'], N: ['🟪', '🟥', '🟧', '🟨'], T: ['🟫', '🟧'] };
+  function emojiMap(art) {
+    const used = new Set(art.join('')), map = {}, taken = new Set();
+    for (const c of Object.keys(SQUARES)) if (used.has(c) && SQUARES[c].length === 1) { map[c] = SQUARES[c][0]; taken.add(map[c]); }
+    for (const c of Object.keys(SQUARES)) if (used.has(c) && !map[c]) { map[c] = SQUARES[c].find(e => !taken.has(e)) || SQUARES[c][0]; taken.add(map[c]); }
+    return map;
+  }
+  const emojiGrid = (art) => { const m = emojiMap(art); return art.map(row => [...row].map(ch => m[ch] || '　').join('')).join('\n'); };
+  const mmss = (s) => { s = Math.round(s); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+  const shareText = ({ n, timeSec, boxes, attempts, art }) => `Shelf Control #${n} · ${mmss(timeSec)} · ${boxes} box${boxes === 1 ? '' : 'es'}${attempts > 1 ? ` · try ${attempts}` : ''}\n${emojiGrid(art)}`;
+  /** streak arithmetic after a win on day n: consecutive days extend it, a gap restarts it, a second win the same day changes nothing */
+  function streakAfter(s, n) {
+    if (s.lastWon === n) return { streak: s.streak, best: s.best, lastWon: n };
+    const streak = s.lastWon === n - 1 ? s.streak + 1 : 1;
+    return { streak, best: Math.max(s.best || 0, streak), lastWon: n };
+  }
+  /** the streak as shown: it survives until the day after its last win ends */
+  const alive = (s, ms) => (s.lastWon > 0 && number(ms) - s.lastWon <= 1 ? s.streak : 0);
+  return { EPOCH, number, key, artFor, def, emojiMap, emojiGrid, shareText, streakAfter, alive };
+})();
+
+const CORE = { CONFIG, mulberry32, makeRng, hashSeed, layoutHash, PALETTE, DAILY, SYMBOLS, ARTS, LEVELS, BACKTEST, LevelError, columns, parseLane, laneToString,
                colorCounts, loadLevel, validateBakedLevels, GEN, createSim };
 if (typeof module !== 'undefined' && module.exports) module.exports = CORE;
 </script>
@@ -1136,6 +1195,18 @@ const saveProgress = () => Store.set('sc.progress', progress);
 // Progress is keyed by level id, and a curated id carries its layout, so an entry whose id is no longer in the set was
 // earned on a puzzle that has since been re-baked: drop it rather than let it mark the new puzzle done.
 { const live = new Set(LEVELS.map(lv => lv.id)); let stale = false; for (const k of Object.keys(progress.done)) if (!live.has(k)) { delete progress.done[k]; stale = true; } if (stale) saveProgress(); }
+const daily = Object.assign({ attempts: {}, wins: {}, streak: 0, best: 0, lastWon: 0 }, Store.get('sc.daily', {}));
+const saveDaily = () => Store.set('sc.daily', daily);
+{ // sixty days of attempts and results are kept; the streak fields carry the rest
+  const cutoff = DAILY.key(Date.now() - 60 * 86400000); let stale = false;
+  for (const bag of [daily.attempts, daily.wins]) for (const k of Object.keys(bag)) if (k < cutoff) { delete bag[k]; stale = true; }
+  if (stale) saveDaily();
+}
+/** Launched from the home screen rather than a browser tab: the manifest's start_url carries ?standalone=1 so the launch is
+ *  attributable even where the display-mode media query is unreliable (plan §2.4). */
+const standalone = (() => { try { return new URLSearchParams(location.search).get('standalone') === '1' || window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true; } catch (e) { return false; } })();
+const sessions = Object.assign({ count: 0, standalone: 0, a2hsDismissed: false, installed: null }, Store.get('sc.sessions', {}));
+sessions.count++; if (standalone) sessions.standalone++; Store.set('sc.sessions', sessions);
 const mediaReduced = (() => { try { return window.matchMedia('(prefers-reduced-motion: reduce)'); } catch (e) { return { matches: false }; } })();
 const reducedMotion = () => (settings.motion === 'on' ? true : settings.motion === 'off' ? false : !!mediaReduced.matches);
 /** CSS animations (tutorial hand, tip fade) read the same preference through a root class. */
@@ -1604,6 +1675,7 @@ function startLevel(def, opts = {}) {
   const G = Game;
   G.def = def; G.mode = opts.mode || (def.reverse ? 'yoink' : 'build');
   if (G.mode === 'yoink' && !def.reverse) G.mode = 'build';         // baked lanes are only valid for build mode
+  if (def.daily) { daily.attempts[def.daily.key] = (daily.attempts[def.daily.key] || 0) + 1; saveDaily(); }   // retries are allowed and counted (plan §2.2)
   G.sim = createSim(def, { mode: G.mode, trayCapacity: CONFIG.trayCapacity, shelfCapacity: CONFIG.shelfCapacity });
   G.L = computeLayout(G.sim);
   G.actors = G.sim.cats.map(makeActor);
@@ -1649,7 +1721,7 @@ function fireTap(target) {
 }
 function startHop(a, placements) {
   const G = Game, L = G.L;
-  a.pending = placements.slice(); a.state = 'hop'; a.t = 0;
+  a.pending = placements.slice(); a.state = 'hop'; a.t = 0; a.loopHop = false;
   a.from = { x: a.x, y: a.y, s: a.s }; a.to = { x: L.treeX, y: L.treeBaseY - 15 * L.shelfScale };
   a.squashY = 0.85; a.squashX = 1.12; a.dir = -1; a.alpha = 1; a.tilt = 0; a.bounce = 0; a.glow = 0; a.slot = -1; a.dim = false; a.fast = false; a.hopDur = 0;
   G.flight.push(a); G.lastDispatched = a; G.lastDispatchAt = G.time;
@@ -1671,7 +1743,7 @@ function endOfPass(a) {
 }
 function startLoopHop(a, placements) {
   const L = Game.L;
-  a.pending = placements.slice(); a.state = 'hop'; a.t = 0; a.hopDur = 0.3;   // still on the loop (G.flight): no push, no dispatch-gap bump
+  a.pending = placements.slice(); a.state = 'hop'; a.t = 0; a.hopDur = 0.3; a.loopHop = true;   // still on the loop (G.flight): no push, no dispatch-gap bump
   a.from = { x: a.x, y: a.y, s: a.s }; a.to = { x: L.treeX, y: L.treeBaseY - 15 * L.shelfScale };
   a.squashY = 0.85; a.squashX = 1.12; a.dir = -1; a.tilt = 0; a.legPhase = null;
   Audio.pop();
@@ -1795,7 +1867,8 @@ function update(dt) {
     const a = G.flight[i], prev = i > 0 ? G.flight[i - 1] : null;
     if (a.state === 'hop') {
       a.t += dt; const u = clamp(a.t / (a.hopDur || 0.22), 0, 1), e = easeInOut(u);
-      a.x = lerp(a.from.x, a.to.x, e); a.y = lerp(a.from.y, a.to.y, e) - Math.sin(u * Math.PI) * 70; a.s = lerp(a.from.s, L.shelfScale, u);
+      const arc = a.loopHop && reducedMotion() ? 0 : 70;   // reduced motion: the auto-finish turn-round glides back instead of hopping (glow only)
+      a.x = lerp(a.from.x, a.to.x, e); a.y = lerp(a.from.y, a.to.y, e) - Math.sin(u * Math.PI) * arc; a.s = lerp(a.from.s, L.shelfScale, u);
       if (u >= 1) { a.state = 'path'; a.pathS = 0; a.x = a.to.x; a.y = a.to.y; a.dir = 1; a.walkT = 0; }
     } else if (a.state === 'path') {
       let maxS = Infinity;
@@ -1923,12 +1996,18 @@ function finishLevel(result, reason) {
   const rec = { level: G.def.id, art: G.def.artId || (G.def.id.startsWith('gen-') ? null : G.def.id), preset: G.def.preset || null, seed: G.def.seed ?? null, mode: G.mode,
     trayCapacity: sim.boxes.length - st.continuesUsed, shelfCapacity: sim.shelfCapacity, result, reason, timeSec: Math.round(G.playTime * 10) / 10,
     dispatches: st.dispatches, zeroPlaceDispatches: st.zeroPlaceDispatches, maxBoxesUsed: st.maxBoxesUsed, graceSaves: st.graceSaves, autoLoops: st.autoLoops,
-    continuesUsed: st.continuesUsed, deniedTaps: st.deniedTaps + G.extraDenied };
+    continuesUsed: st.continuesUsed, deniedTaps: st.deniedTaps + G.extraDenied,
+    daily: G.def.daily ? G.def.daily.n : null, attempt: G.def.daily ? daily.attempts[G.def.daily.key] || 1 : null, standalone };
   G.telemetry.push(rec); console.log('[shelf-control telemetry]', JSON.stringify(rec));
-  if (result === 'won' && !G.def.id.startsWith('gen-')) {
+  if (result === 'won' && G.levelIndex >= 0) {                     // curated progress; generated and daily levels keep their own books
     const prev = progress.done[G.def.id];
     progress.done[G.def.id] = { timeSec: prev ? Math.min(prev.timeSec, rec.timeSec) : rec.timeSec, dispatches: rec.dispatches, when: Date.now() };
     saveProgress();
+  }
+  if (result === 'won' && G.def.daily) {
+    const d = G.def.daily;
+    if (!daily.wins[d.key]) daily.wins[d.key] = { timeSec: rec.timeSec, dispatches: rec.dispatches, boxes: rec.maxBoxesUsed, attempts: rec.attempt };   // the first win is the result, as the genre does it
+    Object.assign(daily, DAILY.streakAfter(daily, d.n)); saveDaily();
   }
   UI.showCard(result, reason, rec);
 }
@@ -2002,6 +2081,17 @@ function drawSweepsAndWave(ctx) {
     ctx.fillStyle = g; ctx.fillRect(L.wellX + d - 60, L.wellY - 600, 120, 1400);
   }
   ctx.restore();
+}
+/** The app icon (plan §2.4): the wall gradient, a dark plate, three blocks and a cat, drawn by the game's own routines. maskable: extra margin for the safe zone. */
+function drawIcon(canvas, size, maskable) {
+  const ctx = canvas.getContext('2d'); canvas.width = size; canvas.height = size;
+  const g = ctx.createLinearGradient(0, 0, 0, size); g.addColorStop(0, T.wallTop); g.addColorStop(1, T.wallBottom);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, size, size);
+  const m = maskable ? size * 0.16 : size * 0.07;
+  roundRect(ctx, m, m, size - 2 * m, size - 2 * m, size * 0.2); ctx.fillStyle = T.well; ctx.fill();
+  const b = (size - 2 * m) * 0.2, gap = b * 0.16, y = size - m - b * 0.95, x0 = size / 2 - 1.5 * b - gap;
+  ['R', 'Y', 'B'].forEach((c, i) => { roundRect(ctx, x0 + i * (b + gap), y, b, b, b * 0.22); ctx.fillStyle = PALETTE[c].hex; ctx.fill(); });
+  drawCat(ctx, { x: size / 2, y: y - b * 1.05, s: (size - 2 * m) / 98, color: 'O', dir: 1, happy: true });   // sitting on the blocks, filling the plate
 }
 function drawActorFull(ctx, a) {
   const G = Game;
@@ -2238,10 +2328,64 @@ const UI = (() => {
     g.addEventListener('click', () => { Audio.init(); showGen(); });
     tiles.appendChild(g);
   }
+  // ---- daily level (plan §2.2): one generated level per UTC date, a streak, share text ----
+  const dailyBox = $('#daily'), a2hs = $('#a2hs');
+  let dailyDef = null;
+  function todaysDaily() { const k = DAILY.key(Date.now()); if (!dailyDef || dailyDef.daily.key !== k) dailyDef = DAILY.def(Date.now()); return dailyDef; }
+  function buildDaily() {
+    dailyBox.innerHTML = '';
+    const now = Date.now(), n = DAILY.number(now), k = DAILY.key(now), artId = DAILY.artFor(n), won = daily.wins[k], streak = DAILY.alive(daily, now), tries = daily.attempts[k] || 0;
+    const t = el('button', 'tile daily' + (won ? ' done' : '')); t.type = 'button';
+    t.appendChild(artThumb(ARTS[artId].art, !!won, 64, 56));
+    const txt = el('div', 'txt');
+    txt.appendChild(el('div', 'name', `Daily #${n}`));
+    let when; try { when = new Date(now).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }); } catch (e) { when = k; }
+    txt.appendChild(el('div', 'meta', `${when} · ${ARTS[artId].name} · same for everyone`));
+    const fire = streak > 1 ? ` · 🔥 ${streak}-day streak` : '';   // a streak of one is just today's win
+    txt.appendChild(el('div', 'meta', won
+      ? `Done in ${fmtTime(won.timeSec)} · ${won.boxes} box${won.boxes === 1 ? '' : 'es'}${won.attempts > 1 ? ` · try ${won.attempts}` : ''}${fire}`
+      : (tries ? `${tries} ${tries === 1 ? 'try' : 'tries'} so far` : 'Not played yet') + fire));
+    t.appendChild(txt);
+    if (won) { const sh = button('Share', 'good share', (ev) => { ev.stopPropagation(); shareDaily(sh, k); }); t.appendChild(sh); }
+    t.addEventListener('click', () => { Audio.init(); playDaily(); });
+    dailyBox.appendChild(t);
+  }
+  function playDaily() { Game.levelIndex = -1; startLevel(todaysDaily()); }
+  function dailyShareText(k) { const won = daily.wins[k], n = DAILY.number(Date.parse(k + 'T00:00:00Z')); return DAILY.shareText({ n, timeSec: won.timeSec, boxes: won.boxes, attempts: won.attempts, art: ARTS[DAILY.artFor(n)].art }); }
+  /** navigator.share where it exists (phones), the clipboard otherwise, a selectable box when even that is blocked */
+  async function shareOrCopy(text) {
+    try { if (navigator.share && (!navigator.canShare || navigator.canShare({ text }))) { await navigator.share({ text }); return 'shared'; } } catch (e) { if (e && e.name === 'AbortError') return 'cancelled'; }
+    try { await navigator.clipboard.writeText(text); return 'copied'; } catch (e) { /* fall through */ }
+    const box = el('div'); box.appendChild(el('h2', null, 'Share'));
+    const ta = document.createElement('textarea'); ta.readOnly = true; ta.value = text; ta.style.cssText = 'width:100%;height:190px;font:inherit;font-size:14px;border-radius:12px;border:1px solid rgba(51,40,79,.2);padding:8px;box-sizing:border-box'; box.appendChild(ta);
+    const row = el('div', 'row'); row.appendChild(button('Done', null, closeModal)); box.appendChild(row); openModal(box); ta.focus(); ta.select();
+    return 'shown';
+  }
+  /** k names the daily to share: the completed level's own day from the win card (it may be past UTC midnight by then), today's from the tile */
+  async function shareDaily(btn, k) {
+    if (!daily.wins[k]) return;
+    const was = btn.textContent; const r = await shareOrCopy(dailyShareText(k)); Game.lastShare = r;
+    if (r === 'copied') { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = was; }, 1500); }
+  }
+  // ---- add to home screen (plan §2.4): a hint after the second session, in a browser tab, until dismissed or installed ----
+  let installPrompt = null;
+  try {
+    window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; if (!Game.sim) buildA2hs(); });
+    window.addEventListener('appinstalled', () => { sessions.installed = Date.now(); Store.set('sc.sessions', sessions); if (!Game.sim) buildA2hs(); });
+  } catch (e) { /* no window */ }
+  function buildA2hs() {
+    a2hs.innerHTML = '';
+    const show = sessions.count >= 2 && !standalone && !sessions.a2hsDismissed && !sessions.installed;
+    a2hs.classList.toggle('hidden', !show); if (!show) return;
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+    a2hs.appendChild(el('span', null, installPrompt ? 'Play offline: add Shelf Control to your home screen.' : ios ? 'Play offline: tap Share, then “Add to Home Screen”.' : 'Play offline: add Shelf Control to your home screen from the browser menu.'));
+    if (installPrompt) a2hs.appendChild(button('Install', 'good', async () => { const p = installPrompt; installPrompt = null; try { p.prompt(); await p.userChoice; } catch (e) { /* declined */ } buildA2hs(); }));
+    const x = button('✕', 'secondary', () => { sessions.a2hsDismissed = true; Store.set('sc.sessions', sessions); buildA2hs(); }); x.setAttribute('aria-label', 'Dismiss'); a2hs.appendChild(x);
+  }
   function showSelect() {
     Game.sim = null; Game.state = 'idle';
     if (Game.levelIndex >= 0) { currentChapter = chapterOf(Game.levelIndex); Store.set('sc.chapter', currentChapter); }   // come back to the chapter you were in
-    closeModal(); clearTips(); buildTiles();
+    closeModal(); clearTips(); buildA2hs(); buildDaily(); buildTiles();
     select.classList.remove('hidden'); hud.classList.add('hidden');
   }
   function play(index) { Game.levelIndex = index; startLevel(LEVELS[index]); }
@@ -2253,7 +2397,7 @@ const UI = (() => {
   function onLevelStart() {
     const G = Game; select.classList.add('hidden'); closeModal(); clearTips(); hud.classList.remove('hidden');
     const idx = G.levelIndex;
-    title.textContent = idx >= 0 ? `Level ${idx + 1} · ${G.def.name}` : G.def.preset ? `${G.def.preset} · ${G.mode} · seed ${G.def.seed}` : `${G.def.name}${G.mode === 'yoink' ? ' · yoink' : ''}`;
+    title.textContent = G.def.daily ? `Daily #${G.def.daily.n} · ${G.def.name}` : idx >= 0 ? `Level ${idx + 1} · ${G.def.name}` : G.def.preset ? `${G.def.preset} · ${G.mode} · seed ${G.def.seed}` : `${G.def.name}${G.mode === 'yoink' ? ' · yoink' : ''}`;
     // tutorial (plan §11.2)
     if (idx === 0) { tutorialStep(1); }
     else if (idx === 1 && !settings.seenTips.frontOnly) { settings.seenTips.frontOnly = true; saveSettings(); showTip('Only the front cat in each line can go.', DW / 2, 640, 5); }
@@ -2306,16 +2450,21 @@ const UI = (() => {
   function showCard(result, reason, rec) {
     const G = Game, box = el('div'); G.lastCard = { result, reason, rec };
     if (result === 'won') {
-      box.appendChild(el('h2', null, `${G.def.name} done!`));
+      const d = G.def.daily;
+      box.appendChild(el('h2', null, d ? `Daily #${d.n} done!` : `${G.def.name} done!`));
       const th = artThumb(G.def.art, true, 160, 150); th.className = 'card-pic'; box.appendChild(th);
       box.appendChild(el('p', null, `Time ${fmtTime(rec.timeSec)} · ${rec.dispatches} dispatches · ${rec.maxBoxesUsed} boxes at most`));
       if (rec.graceSaves) box.appendChild(el('p', 'small', `${rec.graceSaves} last-second save${rec.graceSaves > 1 ? 's' : ''}!`));
       if (rec.autoLoops) box.appendChild(el('p', 'small', `The last cat finished by itself: ${rec.autoLoops} extra lap${rec.autoLoops > 1 ? 's' : ''}.`));
+      if (d) { const streak = DAILY.alive(daily, Date.now()); box.appendChild(el('p', 'small', streak > 1 ? `🔥 ${streak}-day streak` : 'Come back tomorrow for a new one.')); }
       const row = el('div', 'row');
       const hasNext = G.levelIndex >= 0 && G.levelIndex + 1 < LEVELS.length;
-      row.appendChild(button(hasNext ? 'Next' : 'Levels', 'good', () => (hasNext ? play(G.levelIndex + 1) : showSelect())));
-      row.appendChild(button('Replay', 'secondary', restart));
-      if (hasNext) row.appendChild(button('Levels', 'secondary', showSelect));
+      if (d) { const sh = button('Share', 'good', () => shareDaily(sh, d.key)); row.appendChild(sh); row.appendChild(button('Levels', 'secondary', showSelect)); row.appendChild(button('Replay', 'secondary', restart)); }
+      else {
+        row.appendChild(button(hasNext ? 'Next' : 'Levels', 'good', () => (hasNext ? play(G.levelIndex + 1) : showSelect())));
+        row.appendChild(button('Replay', 'secondary', restart));
+        if (hasNext) row.appendChild(button('Levels', 'secondary', showSelect));
+      }
       box.appendChild(row);
     } else {
       box.appendChild(el('h2', null, 'Out of room'));
@@ -2350,7 +2499,7 @@ const UI = (() => {
     box.appendChild(toggleRow('Motion', sel));
     const row = el('div', 'row');
     if (devTools) row.appendChild(button('🐞 Debug', 'secondary', () => { closeModal(); toggleDebug(true); }));
-    row.appendChild(button('Reset progress', 'secondary', () => { progress.done = {}; settings.seenTips = {}; Store.clear(); saveSettings(); saveProgress(); Game.telemetry = []; currentChapter = null; closeModal(); if (!Game.sim) buildTiles(); }));
+    row.appendChild(button('Reset progress', 'secondary', () => { progress.done = {}; settings.seenTips = {}; Object.assign(daily, { attempts: {}, wins: {}, streak: 0, best: 0, lastWon: 0 }); Store.clear(); saveSettings(); saveProgress(); saveDaily(); Game.telemetry = []; currentChapter = null; closeModal(); if (!Game.sim) { buildDaily(); buildTiles(); } }));
     row.appendChild(button('Done', null, closeModal));
     box.appendChild(row);
     if (!Store.available) box.appendChild(el('p', 'small', 'Storage is blocked here: settings and progress last for this visit only.'));
@@ -2467,7 +2616,7 @@ const UI = (() => {
   $('#btn-settings').addEventListener('click', () => { Audio.init(); if (modalOpen() && !levelOver()) closeModal(); else showSettings(); });
   $('#btn-settings2').addEventListener('click', () => { Audio.init(); showSettings(); });
   modal.addEventListener('pointerdown', (e) => { if (e.target === modal && Game.sim && Game.state === 'playing') closeModal(); });
-  return { showSelect, play, playGenerated, restart, onLevelStart, showCard, showSettings, showGen, tutorialEvent, toggleDebug, updateDebug, closeModal, modalOpen, artThumb };
+  return { showSelect, play, playGenerated, playDaily, restart, onLevelStart, showCard, showSettings, showGen, tutorialEvent, toggleDebug, updateDebug, closeModal, modalOpen, artThumb, shareOrCopy };
 })();
 
 // ------------------------------ BOOT ------------------------------
@@ -2535,7 +2684,9 @@ function boot() {
   requestAnimationFrame(loop);
   window.__selftest = selftest;
   if (devTools) $('#foot-label').textContent = 'test build';   // follows the override too, so ?debug=0 previews the live presentation
-  window.SC = { Game, CONFIG, LEVELS, GEN, createSim, startLevel, UI, tap: enqueueTap, hitTest, settings, Audio, view, useContinue, telemetry: () => Game.telemetry, BUILD, devTools, ARTS };
+  // offline after the first load (plan §2.4): the worker caches this file and its icons; only over http(s), never from a file:// open
+  try { if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('./sw.js').catch(() => {}); } catch (e) { /* ignore */ }
+  window.SC = { Game, CONFIG, LEVELS, GEN, createSim, startLevel, UI, tap: enqueueTap, hitTest, settings, Audio, view, useContinue, telemetry: () => Game.telemetry, BUILD, devTools, ARTS, DAILY, daily, sessions, standalone, drawIcon };
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();

@@ -1,7 +1,8 @@
 # Publishes two builds of the game to GitHub Pages from one repository:
 #   main  ->  https://<owner>.github.io/<repo>/        the shipped ("live") build: developer tools off
 #   dev   ->  https://<owner>.github.io/<repo>/test/   the test build: debug overlay, seed field, "test build" label
-# Shipping is a merge from dev into main. One-time setup: Settings -> Pages -> Source: "GitHub Actions".
+# Each build is index.html plus its installable-app files (manifest, service worker, icons); the deploy stamps the commit
+# into the worker's cache version and renames the test build's app. Setting: Settings -> Pages -> Source: "GitHub Actions".
 # The github-pages environment accepts deployments from main only, so a push to dev does not deploy by itself: its `relay`
 # job asks the main-branch copy of this workflow to run, and that run publishes both builds (it checks dev out by name).
 name: Deploy to GitHub Pages
@@ -60,7 +61,19 @@ jobs:
           # the only difference between the builds: this one line flips the channel, and the deploy fails if it is not found
           sed -i "s/^const BUILD = { channel: 'dev' };$/const BUILD = { channel: 'live' };/" site/index.html
           grep -q "^const BUILD = { channel: 'live' };$" site/index.html
-          if [ "${{ steps.dev.outputs.exists }}" = "true" ]; then cp test/index.html site/test/index.html; else cp live/index.html site/test/index.html; fi
+          src=$([ "${{ steps.dev.outputs.exists }}" = "true" ] && echo test || echo live)
+          cp "$src/index.html" site/test/index.html
+          # the installable app: manifest, worker, icons; the worker's cache version is the deployed commit
+          for pair in "live site" "$src site/test"; do set -- $pair
+            cp "$1/manifest.webmanifest" "$1/sw.js" "$2/"; cp -r "$1/icons" "$2/icons"
+            sed -i "s/^const VERSION = 'dev';$/const VERSION = '$(git -C "$1" rev-parse --short HEAD)';/" "$2/sw.js"
+            grep -q "^const VERSION = '[0-9a-f]\{7,\}';$" "$2/sw.js"
+          done
+          sed -i 's/"name": "Shelf Control"/"name": "Shelf Control (test)"/; s/"short_name": "Shelf Control"/"short_name": "SC test"/' site/test/manifest.webmanifest
+          grep -q '"name": "Shelf Control (test)"' site/test/manifest.webmanifest
+          # iOS labels a home-screen app by this meta, not the manifest, so the test build gets its short name here too
+          sed -i 's/^<meta name="apple-mobile-web-app-title" content="Shelf Control">$/<meta name="apple-mobile-web-app-title" content="SC test">/' site/test/index.html
+          grep -q '^<meta name="apple-mobile-web-app-title" content="SC test">$' site/test/index.html
           touch site/.nojekyll
           echo "live: $(git -C live rev-parse --short HEAD)  test: $([ "${{ steps.dev.outputs.exists }}" = "true" ] && git -C test rev-parse --short HEAD || echo 'main (no dev branch yet)')"
       - uses: actions/configure-pages@v5
