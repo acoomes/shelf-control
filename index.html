@@ -2474,13 +2474,20 @@ function selftest() {
   const lines = [];
   try {
     validateBakedLevels(); lines.push('loader: ok');
-    for (const lv of LEVELS) {
+    for (const lv of LEVELS.filter(l => l.pinned)) {           // the Appendix B references: solve and re-rate
       const { cols, lanes, cap } = GEN.lanesOf(lv);
       const s = GEN.solve(cols, lanes, cap, 2e6);
       const rate = GEN.randomWinRate(cols, lanes, cap, makeRng(hashSeed('st:' + lv.id)), 300);
       const greedy = GEN.playout(cols, lanes, cap, makeRng(1), true);
       lines.push(`${lv.id}: solvable=${s.solvable} random-win=${rate.toFixed(2)} (appendix ${BACKTEST[lv.id].randomWin}) greedy=${greedy}`);
     }
+    let replayed = 0, bad = [];                                 // the curated rest: their baked reference line must win
+    for (const lv of LEVELS.filter(l => !l.pinned)) {
+      const sim = createSim(lv); let denied = false;
+      for (const id of lv.ref) { if (!sim.dispatch(id).ok) { denied = true; break; } sim.arrive(id); }
+      if (denied || sim.status !== 'won') bad.push(lv.id); else replayed++;
+    }
+    lines.push(`curated: ${replayed} reference lines win in the sim${bad.length ? ', FAILED: ' + bad.join(', ') : ''}`);
     const run = () => { const sim = createSim(LEVELS[1]); const out = []; for (let i = 0; i < 30 && sim.status === 'playing'; i++) { const c = sim.tappableCats().find(x => sim.canPlaceNow(x) > 0) || sim.tappableCats()[0]; if (!c) break; const r = sim.dispatch(c.id); if (r.ok) { out.push(r.placements.length); sim.arrive(c.id); } const inv = sim.checkInvariant(); if (!inv.ok) out.push('INVARIANT BROKEN'); } return out.join(','); };
     lines.push(`determinism: ${run() === run() ? 'ok' : 'MISMATCH'}`);
   } catch (e) { lines.push('ERROR ' + e.message); }

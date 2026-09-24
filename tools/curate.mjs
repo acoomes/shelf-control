@@ -6,6 +6,7 @@
 //   node tools/curate.mjs            # bake into index.html and print the curve
 //   node tools/curate.mjs --dry      # print the curve only
 //   --seeds N (3)  --arts N (8)      # seeds per art per slot, arts tried per slot: more is slower and slightly better
+//   --allow-off-band                 # a written decision (plan §2.1): let a slot take a candidate outside the dispatch band
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -24,6 +25,7 @@ const argv = process.argv.slice(2);
 const flag = (name, dflt) => { const i = argv.indexOf(name); return i >= 0 ? Number(argv[i + 1]) : dflt; };
 const DRY = argv.includes('--dry');
 const SEEDS = flag('--seeds', 3), ARTS_PER_SLOT = flag('--arts', 8);
+const ALLOW_OFF_BAND = argv.includes('--allow-off-band');
 const CHAPTER = 8;
 const BAND = [25, 40];                                   // prototype plan H4: dispatches per level
 const MAX_USES = 3;                                      // an art appears at most this often across the set
@@ -53,7 +55,7 @@ const uses = Object.fromEntries(Object.keys(ARTS).map(a => [a, 0]));
 const chapterArts = []; CURVE.forEach((e, i) => { const c = Math.floor(i / CHAPTER); (chapterArts[c] ||= new Set()); if (e.pin) chapterArts[c].add(pinned[e.pin].artId); });
 for (const e of CURVE) if (e.pin) uses[pinned[e.pin].artId]++;
 
-const out = [], rows = [];
+const out = [], rows = [], unfillable = [];
 const t0 = Date.now();
 CURVE.forEach((entry, i) => {
   const n = i + 1, chapter = Math.floor(i / CHAPTER);
@@ -69,14 +71,16 @@ CURVE.forEach((entry, i) => {
   const candidates = Object.keys(ARTS).filter(a => !chapterArts[chapter].has(a) && uses[a] < MAX_USES)
     .sort((a, b) => uses[a] - uses[b] || (a < b ? -1 : 1));
   const pool = candidates.slice(0, ARTS_PER_SLOT);
-  let best = null;
+  let best = null, nearest = null;
   for (const artId of pool) for (let seed = 1; seed <= SEEDS; seed++) {
     const lv = GEN.generateLevel({ art: ARTS[artId].art, artId, preset: presetName, seed, candidates: 48 });
     const d = lv.ref.length, outside = d < BAND[0] ? BAND[0] - d : d > BAND[1] ? d - BAND[1] : 0;
+    if (outside && !ALLOW_OFF_BAND) { if (!nearest || outside < nearest.outside) nearest = { artId, seed, d, achieved: lv.achieved, outside }; continue; }   // never a candidate
     let score = Math.abs(lv.achieved - target) + (outside ? 0.5 + 0.02 * outside : 0) + 0.03 * uses[artId];
     if (boss) score += lv.greedyWins ? 1.0 : 0;                   // a boss the greedy player solves is not a boss
     if (!best || score < best.score) best = { score, lv, artId, seed, outside };
   }
+  if (!best) { unfillable.push(`level ${n} (target ${target}${boss ? ', boss' : ''}): no candidate inside ${BAND[0]}–${BAND[1]} dispatches; nearest ${nearest.artId} seed ${nearest.seed} at ${nearest.d} (rated ${nearest.achieved.toFixed(2)})`); return; }
   const { lv, artId, seed } = best;
   uses[artId]++; chapterArts[chapter].add(artId);
   // the reference line as sim cat ids (cats are numbered lane by lane, front to back), so the headless suite can replay it
@@ -89,11 +93,16 @@ CURVE.forEach((entry, i) => {
   process.stderr.write(`slot ${n}/${CURVE.length} ${artId} target ${target} → ${lv.achieved.toFixed(2)}${lv.greedyWins ? 'g' : 'L'}/${lv.ref.length}\n`);
 });
 
+if (unfillable.length) {
+  console.error(`\nBake refused: ${unfillable.length} slot(s) have no candidate inside the dispatch band. Try more --seeds or --arts; widening the band is a written decision (plan §2.1), taken with --allow-off-band.\n  ` + unfillable.join('\n  '));
+  process.exit(1);
+}
 console.log(`\n== curve (${((Date.now() - t0) / 1000).toFixed(0)} s) ==`);
 console.log('lvl  id                 target  achieved  greedy  dispatches  note');
 for (const r of rows) console.log(`${String(r.n).padStart(3)}  ${r.id.padEnd(18)} ${r.target.toFixed(2).padStart(6)}  ${r.achieved.toFixed(2).padStart(8)}  ${(r.greedy ? 'wins' : 'LOSES').padEnd(6)}  ${String(r.dispatches).padStart(10)}  ${r.note}`);
 const inBand = rows.filter(r => r.dispatches >= BAND[0] && r.dispatches <= BAND[1]).length;
-console.log(`\n${inBand}/${rows.length} levels inside the ${BAND[0]}–${BAND[1]} dispatch band; art uses: ${Object.entries(uses).map(([a, u]) => `${a}:${u}`).join(' ')}`);
+const pinnedOut = rows.filter(r => r.note === 'pinned' && (r.dispatches < BAND[0] || r.dispatches > BAND[1])).map(r => `${r.id} ${r.dispatches}`);
+console.log(`\n${inBand}/${rows.length} levels inside the ${BAND[0]}–${BAND[1]} dispatch band (every curated level is; pinned references outside it: ${pinnedOut.join(', ') || 'none'}); art uses: ${Object.entries(uses).map(([a, u]) => `${a}:${u}`).join(' ')}`);
 
 function levelText(lv) {
   const lanes = lv.lanes.map(l => `"${l}"`).join(', ');

@@ -52,11 +52,13 @@ function replayLineInSim(level, line, opts) {
   return { sim };
 }
 console.log('\n== 13.1.1 exhaustive turn-based solve (pinned) + reference-line replay (curated) ==');
+const solverLine = {};
 for (const lv of PINNED) {
   const { cols, lanes, cap } = GEN.lanesOf(lv);
   const t0 = Date.now();
   const r = GEN.solve(cols, lanes, cap, 20e6);
   ok(r.solvable && !r.aborted, `${lv.id}: solvable=${r.solvable} nodes=${r.nodes} line=${r.line ? r.line.length + ' moves' : '-'} (${Date.now() - t0} ms)`);
+  if (r.line) solverLine[lv.id] = r.line.length;
   if (r.line) { const rr = replayLineInSim(lv, r.line); ok(!rr.error && rr.sim.status === 'won', `${lv.id}: the solver's line wins in the real sim`); }
 }
 {
@@ -71,6 +73,11 @@ for (const lv of PINNED) {
   ok(bad.length === 0, `every curated level wins in the sim along its baked reference line (${CURATED.length} levels)${bad.length ? ': ' + bad.join('; ') : ''}`);
   const band = CURATED.filter(l => l.rating.dispatches >= 25 && l.rating.dispatches <= 40).length;
   ok(band === CURATED.length, `every curated level sits in the H4 band of 25–40 dispatches (${band}/${CURATED.length})`);
+  // the six references keep their hand-made lanes for the Appendix B cross-check; exactly two of them run outside the band,
+  // by a written decision in the iteration 2 plan (§2.1): heart is the tutorial and short, rainbow is the finale and long
+  const EXEMPT = { heart: true, rainbow: true };
+  const pinnedOut = PINNED.filter(l => solverLine[l.id] < 25 || solverLine[l.id] > 40).map(l => `${l.id} ${solverLine[l.id]}`);
+  ok(pinnedOut.every(s => EXEMPT[s.split(' ')[0]]) && pinnedOut.length === Object.keys(EXEMPT).length, `pinned references outside the band are exactly the two documented exceptions (${pinnedOut.join(', ')})`);
 }
 {
   // the solver must also say no when the answer is no, and must backtrack when lane-first ordering fails
