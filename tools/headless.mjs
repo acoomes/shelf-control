@@ -118,13 +118,17 @@ for (const lv of PINNED) {
   ok(greedyOff.length === 0, `baked greedy flags hold${greedyOff.length ? ' (off: ' + greedyOff.join(', ') + ')' : ''}`);
   const bosses = CURATED.filter(l => l.curve && l.curve.boss);
   ok(bosses.length > 0 && bosses.every(l => !l.rating.greedyWins), `every chapter boss needs lookahead (${bosses.map(l => l.id).join(', ')})`);
+  // the curve descends: outside the chapter bosses (and the pinned lookahead finale) no level is rated more than 0.10 above the previous one (plan §2.1)
+  { let prev = null; const climbs = [];
+    for (const l of LEVELS) { if ((l.curve && l.curve.boss) || !l.rating.greedyWins) continue; const r = l.rating.randomWin; if (prev && r > prev.r + 0.10 + 1e-9) climbs.push(`${l.id} ${r} after ${prev.id} ${prev.r}`); prev = { id: l.id, r }; }
+    ok(climbs.length === 0, `the curve never climbs back by more than 0.10 outside the chapter bosses${climbs.length ? ' (' + climbs.join('; ') + ')' : ''}`); }
   const hardBosses = bosses.filter(l => l.curve.target <= 0.05);
   ok(hardBosses.every(l => l.rating.randomWin <= l.curve.target), `every hard boss is rated at or below its 5 % ceiling (${hardBosses.map(l => `${l.id} ${l.rating.randomWin}`).join(', ')})`);
 }
 
 console.log('\n== 13.1.3 determinism ==');
 {
-  const lv = LEVELS[3];
+  const lv = LEVELS.find(l => l.id === 'icecream');
   const run = () => {
     const sim = createSim(lv); const out = [];
     const order = [];
@@ -255,13 +259,13 @@ console.log('\n== Phase 3 generator acceptance ==');
   }
   if (timing) ok(maxMs < 400, `generation time max ${maxMs.toFixed(0)} ms (< 400 ms target)`); else console.log(`INFO  generation time max ${maxMs.toFixed(0)} ms (plan target < 400 ms on desktop; run with --timing to assert it)`);
   // determinism: same seed → identical lanes
-  const a = GEN.generateLevel({ art: LEVELS[1].art, preset: 'medium', seed: 12345, candidates: 10, playouts: 20 });
-  const b = GEN.generateLevel({ art: LEVELS[1].art, preset: 'medium', seed: 12345, candidates: 10, playouts: 20 });
+  const a = GEN.generateLevel({ art: ARTS.chick.art, preset: 'medium', seed: 12345, candidates: 10, playouts: 20 });
+  const b = GEN.generateLevel({ art: ARTS.chick.art, preset: 'medium', seed: 12345, candidates: 10, playouts: 20 });
   ok(JSON.stringify(a.lanes) === JSON.stringify(b.lanes) && a.achieved === b.achieved, 'same seed → identical lanes and rating');
-  const c = GEN.generateLevel({ art: LEVELS[1].art, preset: 'medium', seed: 12346, candidates: 10, playouts: 20 });
+  const c = GEN.generateLevel({ art: ARTS.chick.art, preset: 'medium', seed: 12346, candidates: 10, playouts: 20 });
   ok(JSON.stringify(a.lanes) !== JSON.stringify(c.lanes), 'different seed → different lanes');
   // yoink: reverse:true lanes solve the reversed sim
-  const y = GEN.generateLevel({ art: LEVELS[2].art, preset: 'easy', seed: 7, reverse: true, candidates: 10, playouts: 20 });
+  const y = GEN.generateLevel({ art: ARTS.mushroom.art, preset: 'easy', seed: 7, reverse: true, candidates: 10, playouts: 20 });
   const ysim = createSim(y);                       // mode derived from level.reverse
   ok(ysim.mode === 'yoink' && ysim.checkInvariant().ok, 'yoink generated level opens as a yoink sim with the invariant intact');
   // replay the generator's reference line through the yoink sim: it must win, and every placement must be the topmost remaining block

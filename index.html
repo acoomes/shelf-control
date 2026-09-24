@@ -30,7 +30,12 @@ h1{font-weight:700;font-size:38px;margin:0;letter-spacing:.5px;text-shadow:0 2px
 .tile .name{font-weight:600;font-size:16px}
 .tile .meta{font-size:11px;opacity:.7;line-height:1.25}
 .tile.done .name::after{content:" ✓";color:#5FD38D}
-.chapter{grid-column:1/-1;font-weight:700;font-size:15px;opacity:.75;margin:6px 0 -2px;text-align:left}
+.chapter{grid-column:1/-1;font-weight:700;font-size:15px;opacity:.75;margin:2px 0 -2px;text-align:left}
+#chapters{display:flex;gap:6px;justify-content:center;width:100%;margin:0 0 10px}
+.chap{border:0;border-radius:12px;min-width:40px;padding:7px 10px;font:600 14px Fredoka,ui-rounded,system-ui,sans-serif;background:rgba(255,255,255,.6);color:#33284F;cursor:pointer}
+.chap.on{background:#9B7BFF;color:#fff}
+.chap.done::after{content:"✓";font-size:11px;margin-left:3px;color:#5FD38D}
+.chap.on.done::after{color:#fff}
 .tile.gen .dice{width:104px;height:84px;border-radius:12px;background:linear-gradient(135deg,#FFD84D,#FF9CCB);display:flex;align-items:center;justify-content:center;font-size:48px}
 .foot{margin:10px 0 0;font-size:13px;opacity:.7}
 button.link{border:0;background:none;font:inherit;color:inherit;text-decoration:underline;cursor:pointer;padding:0}
@@ -77,6 +82,7 @@ button.link{border:0;background:none;font:inherit;color:inherit;text-decoration:
   <div id="select" class="screen">
     <h1>Shelf Control</h1>
     <p class="sub">Tap a cat. Build the picture. Don’t run out of boxes.</p>
+    <div id="chapters"></div>
     <div id="tiles"></div>
     <p class="foot"><span id="foot-label">web prototype</span> · <button id="btn-settings2" class="link" type="button">settings</button></p>
   </div>
@@ -2168,7 +2174,7 @@ function setupInput() {
 
 // ------------------------------ UI / SCREENS (plan §11) ------------------------------
 const UI = (() => {
-  const hud = $('#hud'), title = $('#hud-title'), tips = $('#tips'), select = $('#select'), tiles = $('#tiles'), modal = $('#modal'), panel = $('#panel'), debug = $('#debug');
+  const hud = $('#hud'), title = $('#hud-title'), tips = $('#tips'), select = $('#select'), tiles = $('#tiles'), chapters = $('#chapters'), modal = $('#modal'), panel = $('#panel'), debug = $('#debug');
   let debugOpen = false, tipTimers = [];
 
   function artThumb(art, full, w = 120, h = 110) {
@@ -2188,11 +2194,25 @@ const UI = (() => {
     const b = lv.rating || BACKTEST[lv.id]; if (!b) return '';
     return `random-win ${Math.round(b.randomWin * 100)}%` + (b.greedyWins ? '' : ' · needs lookahead');
   }
-  const CHAPTER = 8;                                 // level-select chapters: a header every eight levels
+  // ---- level select: pages by chapter (plan §2.1), eight levels a page; remembers the page and follows the last level played ----
+  const CHAPTER = 8;
+  const chapterCount = () => Math.ceil(LEVELS.length / CHAPTER), chapterOf = (i) => Math.floor(i / CHAPTER);
+  let currentChapter = null;
+  function defaultChapter() { const first = LEVELS.findIndex(lv => !progress.done[lv.id]); return chapterOf(first < 0 ? LEVELS.length - 1 : first); }
+  function showChapter(c) { currentChapter = clamp(c, 0, chapterCount() - 1); Store.set('sc.chapter', currentChapter); buildTiles(); }
   function buildTiles() {
-    tiles.innerHTML = '';
-    LEVELS.forEach((lv, i) => {
-      if (LEVELS.length > CHAPTER && i % CHAPTER === 0) tiles.appendChild(el('div', 'chapter', `Chapter ${i / CHAPTER + 1}`));
+    if (currentChapter === null) { const saved = Store.get('sc.chapter', null); currentChapter = Number.isInteger(saved) ? clamp(saved, 0, chapterCount() - 1) : defaultChapter(); }
+    chapters.innerHTML = ''; tiles.innerHTML = '';
+    const n = chapterCount(), doneIn = (c) => LEVELS.slice(c * CHAPTER, (c + 1) * CHAPTER).filter(lv => progress.done[lv.id]).length;
+    if (n > 1) for (let c = 0; c < n; c++) {
+      const size = Math.min(LEVELS.length, (c + 1) * CHAPTER) - c * CHAPTER;
+      const b = el('button', 'chap' + (c === currentChapter ? ' on' : '') + (doneIn(c) === size ? ' done' : ''), String(c + 1)); b.type = 'button'; b.title = `Chapter ${c + 1}`;
+      b.addEventListener('click', () => { Audio.init(); showChapter(c); }); chapters.appendChild(b);
+    }
+    const from = currentChapter * CHAPTER, to = Math.min(LEVELS.length, from + CHAPTER);
+    if (n > 1) tiles.appendChild(el('div', 'chapter', `Chapter ${currentChapter + 1} · ${doneIn(currentChapter)}/${to - from} done`));
+    LEVELS.slice(from, to).forEach((lv, k) => {
+      const i = from + k;
       const done = progress.done[lv.id];
       const t = el('button', 'tile' + (done ? ' done' : '')); t.type = 'button';
       t.appendChild(artThumb(lv.art, !!done, 104, 84));
@@ -2211,6 +2231,7 @@ const UI = (() => {
   }
   function showSelect() {
     Game.sim = null; Game.state = 'idle';
+    if (Game.levelIndex >= 0) { currentChapter = chapterOf(Game.levelIndex); Store.set('sc.chapter', currentChapter); }   // come back to the chapter you were in
     closeModal(); clearTips(); buildTiles();
     select.classList.remove('hidden'); hud.classList.add('hidden');
   }
@@ -2320,7 +2341,7 @@ const UI = (() => {
     box.appendChild(toggleRow('Motion', sel));
     const row = el('div', 'row');
     if (devTools) row.appendChild(button('🐞 Debug', 'secondary', () => { closeModal(); toggleDebug(true); }));
-    row.appendChild(button('Reset progress', 'secondary', () => { progress.done = {}; settings.seenTips = {}; Store.clear(); saveSettings(); saveProgress(); Game.telemetry = []; closeModal(); if (!Game.sim) buildTiles(); }));
+    row.appendChild(button('Reset progress', 'secondary', () => { progress.done = {}; settings.seenTips = {}; Store.clear(); saveSettings(); saveProgress(); Game.telemetry = []; currentChapter = null; closeModal(); if (!Game.sim) buildTiles(); }));
     row.appendChild(button('Done', null, closeModal));
     box.appendChild(row);
     if (!Store.available) box.appendChild(el('p', 'small', 'Storage is blocked here: settings and progress last for this visit only.'));

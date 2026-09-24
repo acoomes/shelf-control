@@ -56,6 +56,8 @@ const chapterArts = []; CURVE.forEach((e, i) => { const c = Math.floor(i / CHAPT
 for (const e of CURVE) if (e.pin) uses[pinned[e.pin].artId]++;
 
 const out = [], rows = [], unfillable = [];
+const CLIMB = 0.10;                                     // plan §2.1: outside the chapter bosses the curve never climbs back by more than this
+let lastNonBoss = null;                                 // rating of the previous non-boss level
 const t0 = Date.now();
 CURVE.forEach((entry, i) => {
   const n = i + 1, chapter = Math.floor(i / CHAPTER);
@@ -64,6 +66,10 @@ CURVE.forEach((entry, i) => {
     out.push({ ...lv, lanes: lv.lanes.slice() });
     const L = loadLevel(lv); const r = GEN.solve(L.cols, L.lanes.map(l => l.map(c => [c.color, c.count])), L.trayCapacity, 5e6);
     rows.push({ n, id: lv.id, target: lv.rating.randomWin, achieved: lv.rating.randomWin, greedy: lv.rating.greedyWins, dispatches: r.solvable ? r.line.length : NaN, note: 'pinned' });
+    if (lv.rating.greedyWins) {                        // a pinned lookahead level (rainbow) is a boss; the others sit on the curve like any level
+      if (lastNonBoss !== null && lv.rating.randomWin > lastNonBoss + CLIMB + 1e-9) unfillable.push(`level ${n} (pinned ${lv.id}, rated ${lv.rating.randomWin}) climbs more than ${CLIMB} above the previous level (${lastNonBoss}); move it in CURVE`);
+      lastNonBoss = lv.rating.randomWin;
+    }
     return;
   }
   const boss = typeof entry === 'object', target = boss ? entry.boss : entry;
@@ -71,7 +77,7 @@ CURVE.forEach((entry, i) => {
   const candidates = Object.keys(ARTS).filter(a => !chapterArts[chapter].has(a) && uses[a] < MAX_USES)
     .sort((a, b) => uses[a] - uses[b] || (a < b ? -1 : 1));
   const pool = candidates.slice(0, ARTS_PER_SLOT);
-  let best = null, nearest = null, nearestBoss = null, nearestCeil = null;
+  let best = null, nearest = null, nearestBoss = null, nearestCeil = null, nearestClimb = null;
   const ceiling = boss && GEN.PRESETS[presetName].targetIsCeiling;   // a hard boss: the plan's ≤ 5 % is binding, not the generator's ±0.10 band
   for (const artId of pool) for (let seed = 1; seed <= SEEDS; seed++) {
     const lv = GEN.generateLevel({ art: ARTS[artId].art, artId, preset: presetName, seed, candidates: 48 });
@@ -79,17 +85,20 @@ CURVE.forEach((entry, i) => {
     if (outside && !ALLOW_OFF_BAND) { if (!nearest || outside < nearest.outside) nearest = { artId, seed, d, achieved: lv.achieved, outside }; continue; }   // never a candidate
     if (boss && lv.greedyWins) { if (!nearestBoss || Math.abs(lv.achieved - target) < Math.abs(nearestBoss.achieved - target)) nearestBoss = { artId, seed, d, achieved: lv.achieved }; continue; }   // a boss the greedy player solves is not a boss: binding, no override
     if (ceiling && lv.achieved > target + 1e-9) { if (!nearestCeil || lv.achieved < nearestCeil.achieved) nearestCeil = { artId, seed, d, achieved: lv.achieved }; continue; }   // above the ceiling: not a hard boss, no override
+    if (!boss && lastNonBoss !== null && lv.achieved > lastNonBoss + CLIMB + 1e-9) { if (!nearestClimb || lv.achieved < nearestClimb.achieved) nearestClimb = { artId, seed, d, achieved: lv.achieved }; continue; }   // would climb back up the curve
     const score = Math.abs(lv.achieved - target) + (outside ? 0.5 + 0.02 * outside : 0) + 0.03 * uses[artId];
     if (!best || score < best.score) best = { score, lv, artId, seed, outside };
   }
   if (!best) {
     if (boss && nearestBoss && !nearest && !nearestCeil) unfillable.push(`level ${n} (boss, target ${target}): every candidate is greedy-solvable; nearest ${nearestBoss.artId} seed ${nearestBoss.seed} rated ${nearestBoss.achieved.toFixed(2)}. Try more --seeds or --arts; there is no override for the boss rule`);
     else if (ceiling && nearestCeil && !nearest) unfillable.push(`level ${n} (hard boss, ceiling ${target}): no greedy-losing candidate at or below the ceiling; lowest ${nearestCeil.artId} seed ${nearestCeil.seed} rated ${nearestCeil.achieved.toFixed(3)}. Try more --seeds or --arts; there is no override for the ceiling`);
+    else if (nearestClimb && !nearest) unfillable.push(`level ${n} (target ${target}): every in-band candidate is rated more than ${CLIMB} above the previous level (${lastNonBoss.toFixed(2)}); lowest ${nearestClimb.artId} seed ${nearestClimb.seed} rated ${nearestClimb.achieved.toFixed(2)}. Try more --seeds or --arts, or lower the earlier targets in CURVE`);
     else unfillable.push(`level ${n} (target ${target}${boss ? ', boss' : ''}): no candidate inside ${BAND[0]}–${BAND[1]} dispatches${boss ? ' that the greedy player loses' : ''}; nearest ${nearest ? `${nearest.artId} seed ${nearest.seed} at ${nearest.d} (rated ${nearest.achieved.toFixed(2)})` : 'none'}`);
     return;
   }
   const { lv, artId, seed } = best;
   uses[artId]++; chapterArts[chapter].add(artId);
+  if (!boss) lastNonBoss = lv.achieved;
   // the reference line as sim cat ids (cats are numbered lane by lane, front to back), so the headless suite can replay it
   const offsets = []; let acc = 0; for (const l of lv.lanes) { offsets.push(acc); acc += l.split(' ').length; }
   const ref = lv.ref.map(k => offsets[lv.where[k][0]] + lv.where[k][1]);
