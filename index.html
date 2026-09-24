@@ -1090,21 +1090,34 @@ function createSim(level, opts = {}) {
 }
 
 // ============================== DAILY ==============================
-// One generated level per UTC date, the same on every device (plan §2.2): the art rotates through the ARTS table, the
-// preset is medium, the seed is the date. Day 1 is 2026-09-24. Pure, so the headless suite can check determinism; the
-// share text and the streak arithmetic live here for the same reason.
+// One generated level per UTC date, the same on every device (plan §2.2): the art rotates through the ARTS table (the
+// tutorial heart sits out: 72 blocks and three colours are a warm-up at any preset), the preset is medium, the seed is
+// the date, and the first of a few seeds whose reference line sits in the plan's 25–40 dispatch band is the one used.
+// Day 1 is 2026-09-24. Pure, so the headless suite can check determinism; the share text and the streak arithmetic
+// live here for the same reason.
 const DAILY = (() => {
   const EPOCH = Date.UTC(2026, 8, 24), DAY = 86400000;
-  const ART_ORDER = Object.keys(ARTS);
+  const ART_ORDER = Object.keys(ARTS).filter(id => id !== 'heart');
+  const BAND = [25, 40], TRIES = 4;
   const dayStart = (ms) => Math.floor(ms / DAY) * DAY;
   const number = (ms) => Math.floor((dayStart(ms) - EPOCH) / DAY) + 1;
   const key = (ms) => new Date(dayStart(ms)).toISOString().slice(0, 10);
   const artFor = (n) => ART_ORDER[(((n - 1) % ART_ORDER.length) + ART_ORDER.length) % ART_ORDER.length];
   function def(ms) {
     const n = number(ms), k = key(ms), artId = artFor(n);
-    // the reference tray limit is the plan's default, never the debug slider's, or two devices would disagree
-    const level = GEN.generateLevel({ art: ARTS[artId].art, artId, preset: 'medium', seed: hashSeed('daily:' + k), trayCap: 5 });
-    level.id = `daily-${k}`; level.name = ARTS[artId].name; level.daily = { n, key: k, artId };
+    // the reference tray limit is the plan's default, never the debug slider's, or two devices would disagree; the seed
+    // sequence is fixed, so every device tries the same candidates in the same order and keeps the same one
+    let level = null, best = null;
+    for (let i = 0; i < TRIES; i++) {
+      const cand = GEN.generateLevel({ art: ARTS[artId].art, artId, preset: 'medium', seed: hashSeed(`daily:${k}:${i}`), trayCap: 5 });
+      const d = cand.ref.length, off = d < BAND[0] ? BAND[0] - d : d > BAND[1] ? d - BAND[1] : 0;
+      if (off === 0) { level = cand; break; }
+      if (!best || off < best.off) best = { cand, off };
+    }
+    level = level || best.cand;
+    level.id = `daily-${k}`; level.name = ARTS[artId].name;
+    // a stored result belongs to the puzzle it was earned on: the layout hash is the identity it is checked against
+    level.daily = { n, key: k, artId, layout: layoutHash(level.art, level.lanes) };
     return level;
   }
   // the finished picture as an emoji grid: squares only, so the rows line up; a colour with no square of its own borrows one
@@ -2006,7 +2019,7 @@ function finishLevel(result, reason) {
   }
   if (result === 'won' && G.def.daily) {
     const d = G.def.daily;
-    if (!daily.wins[d.key]) daily.wins[d.key] = { timeSec: rec.timeSec, dispatches: rec.dispatches, boxes: rec.maxBoxesUsed, attempts: rec.attempt };   // the first win is the result, as the genre does it
+    if (!daily.wins[d.key]) daily.wins[d.key] = { timeSec: rec.timeSec, dispatches: rec.dispatches, boxes: rec.maxBoxesUsed, attempts: rec.attempt, layout: d.layout };   // the first win is the result, as the genre does it
     Object.assign(daily, DAILY.streakAfter(daily, d.n)); saveDaily();
   }
   UI.showCard(result, reason, rec);
@@ -2330,7 +2343,7 @@ const UI = (() => {
   }
   // ---- daily level (plan §2.2): one generated level per UTC date, a streak, share text ----
   const dailyBox = $('#daily'), a2hs = $('#a2hs');
-  let dailyDef = null;
+  let dailyDef = null, reconciledKey = null;   // the day whose stored result this session has already checked; never written into the record
   function todaysDaily() { const k = DAILY.key(Date.now()); if (!dailyDef || dailyDef.daily.key !== k) dailyDef = DAILY.def(Date.now()); return dailyDef; }
   function buildDaily() {
     dailyBox.innerHTML = '';
@@ -2349,6 +2362,18 @@ const UI = (() => {
     if (won) { const sh = button('Share', 'good share', (ev) => { ev.stopPropagation(); shareDaily(sh, k); }); t.appendChild(sh); }
     t.addEventListener('click', () => { Audio.init(); playDaily(); });
     dailyBox.appendChild(t);
+    if (won && reconciledKey !== k) { reconciledKey = k; setTimeout(() => { if (!Game.sim && reconcileDaily()) buildDaily(); }, 0); }   // once per session and day, off the paint
+  }
+  /** A stored result belongs to the puzzle it was earned on. If today's daily has since changed (a rotation change, a generator
+   *  change in a later build), the result is dropped rather than shown against a puzzle the player never saw, and a streak that
+   *  counted it steps back a day. Runs after the tile is drawn, because it has to generate the day's level to compare. */
+  function reconcileDaily() {
+    const now = Date.now(), k = DAILY.key(now), n = DAILY.number(now), won = daily.wins[k];
+    if (!won) return false;
+    if (won.layout === todaysDaily().daily.layout) return false;
+    delete daily.wins[k]; delete daily.attempts[k];
+    if (daily.lastWon === n) { if (daily.streak > 1) { daily.streak--; daily.lastWon = n - 1; } else { daily.streak = 0; daily.lastWon = 0; } }
+    saveDaily(); return true;
   }
   function playDaily() { Game.levelIndex = -1; startLevel(todaysDaily()); }
   function dailyShareText(k) { const won = daily.wins[k], n = DAILY.number(Date.parse(k + 'T00:00:00Z')); return DAILY.shareText({ n, timeSec: won.timeSec, boxes: won.boxes, attempts: won.attempts, art: ARTS[DAILY.artFor(n)].art }); }
