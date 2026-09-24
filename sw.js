@@ -3,7 +3,10 @@
    The Pages workflow writes the deployed commit into VERSION, which retires the previous cache on activation. */
 'use strict';
 const VERSION = 'dev';
-const CACHE = 'shelf-control-' + VERSION;
+// The live build and /test/ share the origin's CacheStorage but carry different versions, so each worker owns the caches
+// of its own scope only: retiring the other installation's cache would strand it offline until its next online open.
+const SCOPE = (() => { try { return new URL(self.registration.scope).pathname.replace(/[^\w]+/g, '_'); } catch (e) { return 'root'; } })();
+const PREFIX = 'shelf-control-' + SCOPE + '-', CACHE = PREFIX + VERSION;
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png', './icons/apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {
@@ -11,7 +14,7 @@ self.addEventListener('install', (e) => {
 });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys()
-    .then((keys) => Promise.all(keys.filter((k) => k.startsWith('shelf-control-') && k !== CACHE).map((k) => caches.delete(k))))
+    .then((keys) => Promise.all(keys.filter((k) => k.startsWith(PREFIX) && k !== CACHE).map((k) => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 self.addEventListener('fetch', (e) => {
@@ -20,6 +23,6 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(fetch(e.request).then((r) => {
     if (r.ok) { const copy = r.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
     return r;
-  }).catch(() => caches.match(e.request, { ignoreSearch: true })
-    .then((m) => m || (e.request.mode === 'navigate' ? caches.match('./index.html') : undefined))));
+  }).catch(() => caches.open(CACHE).then((c) => c.match(e.request, { ignoreSearch: true })
+    .then((m) => m || (e.request.mode === 'navigate' ? c.match('./index.html') : undefined)))));
 });

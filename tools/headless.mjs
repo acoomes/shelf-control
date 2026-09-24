@@ -316,5 +316,22 @@ console.log('\n== daily (plan §2.2) ==');
   ok(DAILY.alive(s2, day(11)) === 2 && DAILY.alive(s2, day(12)) === 2 && DAILY.alive(s2, day(13)) === 0, 'a streak shows today and tomorrow, then lapses');
 }
 
+console.log('\n== service worker (plan §2.4) ==');
+{
+  const src = fs.readFileSync(path.join(here, '..', 'sw.js'), 'utf8');
+  const KEYS = ['shelf-control-_shelf_control_-aaa1111', 'shelf-control-_shelf_control_test_-bbb2222', 'shelf-control-_shelf_control_-ccc3333', 'unrelated'];
+  const runWorker = (scopePath, version) => {
+    const handlers = {}, deleted = [];
+    const caches = { keys: async () => KEYS.slice(), delete: async (k) => { deleted.push(k); return true; }, open: async () => ({ addAll: async () => {}, put: async () => {}, match: async () => undefined }) };
+    const self = { addEventListener: (t, f) => { handlers[t] = f; }, skipWaiting: async () => {}, clients: { claim: async () => {} }, registration: { scope: 'https://example.test' + scopePath }, location: { origin: 'https://example.test' } };
+    vm.runInNewContext(src.replace("const VERSION = 'dev';", `const VERSION = '${version}';`), { self, caches, URL, console }, { filename: 'sw.js' });
+    return { deleted, activate: async () => { let p; handlers.activate({ waitUntil: (x) => { p = x; } }); await p; } };
+  };
+  const live = runWorker('/shelf-control/', 'ccc3333'); await live.activate();
+  ok(live.deleted.length === 1 && live.deleted[0] === 'shelf-control-_shelf_control_-aaa1111', `the live worker retires only its own scope's older cache (${live.deleted.join(', ')})`);
+  const test = runWorker('/shelf-control/test/', 'ddd4444'); await test.activate();
+  ok(test.deleted.length === 1 && test.deleted[0] === 'shelf-control-_shelf_control_test_-bbb2222', `the /test/ worker retires only its own scope's older cache (${test.deleted.join(', ')})`);
+}
+
 console.log(`\n${failures === 0 ? 'ALL PASS' : failures + ' FAILURE(S)'}`);
 process.exit(failures ? 1 : 0);

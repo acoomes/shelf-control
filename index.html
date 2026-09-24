@@ -2346,7 +2346,7 @@ const UI = (() => {
       ? `Done in ${fmtTime(won.timeSec)} · ${won.boxes} box${won.boxes === 1 ? '' : 'es'}${won.attempts > 1 ? ` · try ${won.attempts}` : ''}${fire}`
       : (tries ? `${tries} ${tries === 1 ? 'try' : 'tries'} so far` : 'Not played yet') + fire));
     t.appendChild(txt);
-    if (won) { const sh = button('Share', 'good share', (ev) => { ev.stopPropagation(); shareDaily(sh); }); t.appendChild(sh); }
+    if (won) { const sh = button('Share', 'good share', (ev) => { ev.stopPropagation(); shareDaily(sh, k); }); t.appendChild(sh); }
     t.addEventListener('click', () => { Audio.init(); playDaily(); });
     dailyBox.appendChild(t);
   }
@@ -2361,8 +2361,9 @@ const UI = (() => {
     const row = el('div', 'row'); row.appendChild(button('Done', null, closeModal)); box.appendChild(row); openModal(box); ta.focus(); ta.select();
     return 'shown';
   }
-  async function shareDaily(btn) {
-    const k = DAILY.key(Date.now()); if (!daily.wins[k]) return;
+  /** k names the daily to share: the completed level's own day from the win card (it may be past UTC midnight by then), today's from the tile */
+  async function shareDaily(btn, k) {
+    if (!daily.wins[k]) return;
     const was = btn.textContent; const r = await shareOrCopy(dailyShareText(k)); Game.lastShare = r;
     if (r === 'copied') { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = was; }, 1500); }
   }
@@ -2458,7 +2459,7 @@ const UI = (() => {
       if (d) { const streak = DAILY.alive(daily, Date.now()); box.appendChild(el('p', 'small', streak > 1 ? `🔥 ${streak}-day streak` : 'Come back tomorrow for a new one.')); }
       const row = el('div', 'row');
       const hasNext = G.levelIndex >= 0 && G.levelIndex + 1 < LEVELS.length;
-      if (d) { const sh = button('Share', 'good', () => shareDaily(sh)); row.appendChild(sh); row.appendChild(button('Levels', 'secondary', showSelect)); row.appendChild(button('Replay', 'secondary', restart)); }
+      if (d) { const sh = button('Share', 'good', () => shareDaily(sh, d.key)); row.appendChild(sh); row.appendChild(button('Levels', 'secondary', showSelect)); row.appendChild(button('Replay', 'secondary', restart)); }
       else {
         row.appendChild(button(hasNext ? 'Next' : 'Levels', 'good', () => (hasNext ? play(G.levelIndex + 1) : showSelect())));
         row.appendChild(button('Replay', 'secondary', restart));

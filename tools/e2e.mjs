@@ -401,7 +401,15 @@ const scenarios = {
     ok(r.shared === r.expected && /^Shelf Control #\d+ · \d+:\d\d · \d+ box/.test(r.shared) && /[🟥🟧🟨🟩🟦🟪⬛⬜🟫]/u.test(r.shared), `Share copied the Wordle-style text with the emoji picture (${r.shared.split('\n')[0]})`);
     ok(r.btn === 'Copied!' && r.d.streak === 1 && r.d.lastWon === info.n && r.d.wins[info.key].attempts === 1, `the button says Copied!, streak 1, the win is stored (${JSON.stringify(r.d.wins[info.key])})`);
     ok(r.rec.daily === info.n && r.rec.attempt === 1 && r.rec.level === info.id, 'the telemetry record carries the day number and the attempt');
+    // UTC midnight passes with the win card still open: Share still shares the daily that was completed
+    await api.page.clock.setSystemTime(new Date('2026-10-06T00:00:05Z')); await api.run(20);
+    await api.page.evaluate(() => { window.__shared = null; }); await api.clickSel('#panel .btn.good'); await api.run(100);
+    const late = await api.page.evaluate(() => ({ shared: window.__shared, today: SC.DAILY.number(Date.now()) }));
+    ok(late.today === info.n + 1 && late.shared === r.expected, `after midnight (now Daily #${late.today}) the card still shares Daily #${info.n}`);
     await api.clickSel('#panel .btn', 1); await api.run(50);   // Levels
+    const next = await api.page.evaluate(() => ({ name: document.querySelector('#daily .tile .name').textContent, state: document.querySelectorAll('#daily .tile .meta')[1].textContent }));
+    ok(next.name === `Daily #${info.n + 1}` && /Not played yet/.test(next.state), `the tile has moved on to ${next.name} (${next.state})`);
+    await api.page.clock.setSystemTime(new Date('2026-10-05T12:30:00Z')); await api.run(20); await api.page.evaluate(() => SC.UI.showSelect()); await api.run(20);   // back to the day of the win for the rest
     const tile = await api.text('#daily .tile');
     ok(/Done in \d+:\d\d/.test(tile) && /Share/.test(tile), `the daily tile now shows the result and a Share button (${tile.replace(/\s+/g, ' ').trim()})`);
     await api.clickSel('#daily .tile'); await api.run(100);
