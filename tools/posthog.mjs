@@ -44,7 +44,7 @@ SELECT levelNo,
 FROM (
   SELECT properties.play AS play,
     max(toInt64OrNull(toString(properties.levelNo))) AS levelNo,
-    argMax(properties.result, if(event = 'level_end', timestamp, toDateTime(0))) AS outcome
+    argMax(properties.result, multiIf(event = 'level_end', toUnixTimestamp(timestamp), 0)) AS outcome
   FROM events
   WHERE properties.channel = 'live' AND event IN ('level_start', 'level_end')
     AND properties.levelNo IS NOT NULL AND properties.play IS NOT NULL AND timestamp > now() - INTERVAL 30 DAY
