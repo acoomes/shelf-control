@@ -1,0 +1,46 @@
+# Applies the PostHog dashboard that tools/posthog.mjs defines, so nothing has to run on anyone's machine: on every push
+# to dev that changes the script (or this file), and by hand from the Actions tab ("Run workflow") once this file is on
+# main. The dashboard's definition is always dev's: every run checks dev out, whichever branch it was launched from, so a
+# manual run can never apply main's older copy of the script over what dev last applied. Needs the repository secret POSTHOG_API_KEY, a PostHog personal API key with the scopes insight:write,
+# dashboard:write, project:read and project:write; the repository variable POSTHOG_PROJECT_ID, the project's numeric id
+# from its PostHog URL, so automation never depends on which project the key's owner happens to have open; and, once the
+# portal is chosen, the repository variable POSTHOG_PORTAL_HOSTS with its referrer host(s), comma separated.
+# Settings -> Secrets and variables -> Actions. Without the secret or the id the run fails with the script's own
+# instruction and nothing else happens. One run at a time, and a newer run cancels an older one still queued or running:
+# two applying at once could each create the same insight, and runs in a group start in no guaranteed order, so the
+# newest is the only one that matters (the script is idempotent, so a cancelled run leaves nothing the next does not redo).
+# A dry run has a group of its own: it changes nothing, so it must never cancel an apply run and leave one half done.
+name: PostHog dashboard
+on:
+  push:
+    branches: [dev]
+    paths:
+      - tools/posthog.mjs
+      - .github/workflows/posthog.yml
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print the insight queries without applying them
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: posthog-dashboard-${{ inputs.dry_run == true && 'dry-run' || 'apply' }}
+  cancel-in-progress: true
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply the dashboard
+        run: node tools/posthog.mjs ${{ inputs.dry_run == true && '--dry-run' || '' }}
+        env:
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          POSTHOG_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID }}
+          POSTHOG_PORTAL_HOSTS: ${{ vars.POSTHOG_PORTAL_HOSTS }}
