@@ -9,6 +9,7 @@
 # instruction and nothing else happens. One run at a time, and a newer run cancels an older one still queued or running:
 # two applying at once could each create the same insight, and runs in a group start in no guaranteed order, so the
 # newest is the only one that matters (the script is idempotent, so a cancelled run leaves nothing the next does not redo).
+# A dry run has a group of its own: it changes nothing, so it must never cancel an apply run and leave one half done.
 name: PostHog dashboard
 on:
   push:
@@ -25,7 +26,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: posthog-dashboard
+  group: posthog-dashboard-${{ inputs.dry_run == true && 'dry-run' || 'apply' }}
   cancel-in-progress: true
 jobs:
   apply:
