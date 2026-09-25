@@ -61,7 +61,7 @@ SELECT levelNo,
   round(100 * countIf(outcome = 'won') / count(), 1) AS win_pct
 FROM (
   SELECT properties.play AS play,
-    max(toInt64OrNull(toString(properties.levelNo))) AS levelNo,
+    max(toInt(properties.levelNo)) AS levelNo,
     argMax(properties.result, multiIf(event = 'level_end', toUnixTimestamp(timestamp), 0)) AS outcome
   FROM events
   WHERE ${liveSql()} AND event IN ('level_start', 'level_end')
@@ -241,20 +241,38 @@ async function main() {
   else { dash = await api('POST', `${P}/dashboards/`, DASHBOARD); console.log(`dashboard "${dash.name}" (#${dash.id}) created`); }
 
   const existing = await all(`${P}/insights/?limit=100&saved=true`);
+  const saved = [];
   for (const spec of INSIGHTS) {
     const body = { name: spec.name, description: spec.description, query: spec.query, saved: true };
     const found = existing.find(i => i.name === spec.name && !i.deleted);
     if (found) {
       const dashIds = new Set([...(found.dashboards || []), dash.id]);
-      await api('PATCH', `${P}/insights/${found.id}/`, { ...body, dashboards: [...dashIds] });
+      saved.push(await api('PATCH', `${P}/insights/${found.id}/`, { ...body, dashboards: [...dashIds] }));
       console.log(`  updated  ${spec.name}`);
     } else {
-      await api('POST', `${P}/insights/`, { ...body, dashboards: [dash.id] });
+      saved.push(await api('POST', `${P}/insights/`, { ...body, dashboards: [dash.id] }));
       console.log(`  created  ${spec.name}`);
     }
   }
   if (project.anonymize_ips) console.log('project: client IPs already discarded');
   else { await api('PATCH', `${P}/`, { anonymize_ips: true }); console.log('project: client IPs now discarded'); }
-  console.log(`\ndone: ${HOST}/project/${project.id}/dashboard/${dash.id}`);
+
+  // Saving checks only the query's shape: a query PostHog cannot run (a function HogQL does not expose, a type ClickHouse
+  // rejects) is stored all the same and fails only when the tile renders. So each insight is computed once here, and a
+  // failure fails the run. PostHog answers a failed computation with a 200 whose query_status carries the error, so the
+  // status code alone would pass it. Running out of concurrent query slots is PostHog's load, not the query's: a warning.
+  console.log('\nrendering each insight:');
+  const broken = [];
+  for (const i of saved) {
+    try {
+      const r = await api('GET', `${P}/insights/${i.id}/?refresh=force_blocking`);
+      const st = r.query_status;
+      if (st && st.error && st.error_code === 'concurrency_limit_exceeded') console.log(`  skipped  ${i.name} (PostHog is at its concurrent query limit)`);
+      else if (st && st.error) broken.push(`${i.name}: ${st.error_message || st.error_code || 'error'}`);
+      else console.log(`  ok       ${i.name}`);
+    } catch (e) { broken.push(`${i.name}: ${e.message}`); }
+  }
+  console.log(`\n${broken.length ? 'applied, but' : 'done:'} ${HOST}/project/${project.id}/dashboard/${dash.id}`);
+  if (broken.length) { console.error(`\n${broken.length} insight(s) fail to render:\n${broken.map(b => '  ' + b).join('\n')}`); process.exit(1); }
 }
 main().catch(e => { console.error(e.message); process.exit(1); });
