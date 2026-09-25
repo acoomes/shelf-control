@@ -448,7 +448,7 @@ const scenarios = {
     // plan §2.3: events over plain HTTP, queued in storage, flushed through a replaceable transport; off from a file:// open unless enabled
     const { page } = api;
     const boot = await page.evaluate(() => ({ enabled: SC.Telemetry.enabled, pending: SC.Telemetry.pending(), q: SC.Telemetry.queue(), keys: Object.keys(localStorage).filter(k => k.startsWith('sc.tq.')), device: JSON.parse(localStorage.getItem('sc.device')) }));
-    ok(boot.enabled === false && boot.pending === 1 && boot.q[0].event === 'session_start' && boot.q[0].properties.channel === 'dev' && boot.q[0].properties.standalone === false && boot.q[0].properties.sessions === 1 && /^[0-9a-f]{16}$/.test(boot.device) && boot.q[0].distinct_id === boot.device, `a file:// open queues session_start without sending (device ${boot.device})`);
+    ok(boot.enabled === false && boot.pending === 1 && boot.q[0].event === 'session_start' && boot.q[0].properties.channel === 'dev' && boot.q[0].properties.source === 'web' && boot.q[0].properties.standalone === false && boot.q[0].properties.sessions === 1 && /^[0-9a-f]{16}$/.test(boot.device) && boot.q[0].distinct_id === boot.device, `a file:// open queues session_start without sending (device ${boot.device})`);
     ok(boot.keys.length === 1 && boot.keys[0] === `sc.tq.${String(Date.parse(boot.q[0].timestamp)).padStart(13, '0')}.${boot.q[0].uuid}`, `each event is its own key in storage (${boot.keys[0]})`);
     await page.evaluate(() => { window.__sent = []; window.__ok = false; SC.Telemetry.transport = (body) => { window.__sent.push(body); return Promise.resolve(window.__ok); }; SC.Telemetry.enabled = true; });
     await api.start(FIX.autoFin); await api.run(50);

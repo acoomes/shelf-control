@@ -5,15 +5,19 @@
 #   cache version, and, for the test build, the app renamed so both can be installed side by side.
 # Every rewrite is guarded: a missing line fails the build rather than shipping the wrong thing.
 # The workflow runs each branch's own copy of this script, so a packaging change on dev reaches /test/ without a ship.
-# Usage: tools/assemble.sh <source dir> <output dir> <live|test>       (GNU sed; CI and the headless suite run on Linux)
+# A live build can also name where it is distributed (web by default, or itch for the itch.io upload), which every telemetry
+# event then carries as `source`, so a portal's players are told apart by the build they play rather than by a referrer.
+# Usage: tools/assemble.sh <source dir> <output dir> <live|test> [web|itch]       (GNU sed; CI and the headless suite run on Linux)
 set -eu
-src=$1; out=$2; channel=$3
+src=$1; out=$2; channel=$3; source=${4:-web}
 case "$channel" in live|test) ;; *) echo "channel must be live or test, not '$channel'" >&2; exit 2 ;; esac
+case "$source" in web|itch) ;; *) echo "source must be web or itch, not '$source'" >&2; exit 2 ;; esac
+if [ "$channel" = test ] && [ "$source" != web ]; then echo "a test build is distributed on the web only" >&2; exit 2; fi
 mkdir -p "$out"
 cp "$src/index.html" "$out/index.html"
 if [ "$channel" = live ]; then
-  sed -i "s/^const BUILD = { channel: 'dev' };$/const BUILD = { channel: 'live' };/" "$out/index.html"
-  grep -q "^const BUILD = { channel: 'live' };$" "$out/index.html"
+  sed -i "s/^const BUILD = { channel: 'dev', source: 'web' };/const BUILD = { channel: 'live', source: '$source' };/" "$out/index.html"
+  grep -q "^const BUILD = { channel: 'live', source: '$source' };" "$out/index.html"
 fi
 cp "$src/manifest.webmanifest" "$src/sw.js" "$out/"
 rm -rf "$out/icons"; cp -r "$src/icons" "$out/icons"

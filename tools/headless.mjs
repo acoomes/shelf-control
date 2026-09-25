@@ -347,7 +347,10 @@ console.log('\n== deploy assembly (tools/assemble.sh) ==');
   ok(!failed, `both builds assemble${failed ? ': ' + failed.slice(0, 200) : ''}`);
   if (!failed) {
     const live = fs.readFileSync(path.join(tmp, 'live', 'index.html'), 'utf8'), test = fs.readFileSync(path.join(tmp, 'test', 'index.html'), 'utf8');
-    ok(/^const BUILD = \{ channel: 'live' \};$/m.test(live) && !/channel: 'dev'/.test(live) && /^const BUILD = \{ channel: 'dev' \};$/m.test(test), 'the live build flips the channel line; the test build keeps the dev channel');
+    ok(/^const BUILD = \{ channel: 'live', source: 'web' \};/m.test(live) && !/channel: 'dev'/.test(live) && /^const BUILD = \{ channel: 'dev', source: 'web' \};/m.test(test), 'the live build flips the channel line; the test build keeps the dev channel');
+    { let itch = null, failed = null; try { execFileSync('bash', [path.join(root, 'tools', 'assemble.sh'), root, path.join(tmp, 'itch'), 'live', 'itch'], { stdio: 'pipe' }); itch = fs.readFileSync(path.join(tmp, 'itch', 'index.html'), 'utf8'); } catch (e) { failed = String(e.stderr || e.message); }
+      ok(itch && /^const BUILD = \{ channel: 'live', source: 'itch' \};/m.test(itch), `the itch build is live and stamped with its source${failed ? ': ' + failed.slice(0, 120) : ''}`);
+      let threw = false; try { execFileSync('bash', [path.join(root, 'tools', 'assemble.sh'), root, path.join(tmp, 'bad2'), 'test', 'itch'], { stdio: 'pipe' }); } catch (e) { threw = true; } ok(threw, 'a test build with a portal source is refused'); }
     ok(/content="Shelf Control">/.test(live) && /content="SC test">/.test(test), 'the test build carries the SC test Apple title, the live build the real one');
     const lm = JSON.parse(fs.readFileSync(path.join(tmp, 'live', 'manifest.webmanifest'), 'utf8')), tm = JSON.parse(fs.readFileSync(path.join(tmp, 'test', 'manifest.webmanifest'), 'utf8'));
     ok(lm.name === 'Shelf Control' && tm.name === 'Shelf Control (test)' && tm.short_name === 'SC test', 'the test manifest is renamed, the live one is not');
