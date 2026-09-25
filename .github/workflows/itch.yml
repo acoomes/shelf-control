@@ -1,6 +1,7 @@
 # Pushes the itch.io build on every ship to main, and by hand from the Actions tab, so the upload is never done twice by
 # hand. The build is the live one with its source stamped itch (tools/assemble.sh), so every event from itch players
-# carries source: itch and the retention gate reads them as the portal cohort. butler uploads only what changed.
+# carries source: itch and the retention gate reads them as the portal cohort. butler uploads only what changed. What is
+# pushed is always main, whichever branch a manual run is started from: itch players get the shipped game and nothing else.
 # Needs the repository secret BUTLER_API_KEY (itch.io: Settings -> API keys) and the repository variable ITCH_TARGET, the
 # project as user/game (ajcdrift/shelf-control); the project page itself is created once, by hand, on itch.io.
 name: itch.io build
@@ -18,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - name: Assemble the itch build
         run: bash tools/assemble.sh . build/itch live itch
       - name: Install butler
