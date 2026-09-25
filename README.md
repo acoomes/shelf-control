@@ -46,7 +46,7 @@ Plan §2.3: six events go to PostHog (one project, US cloud) over plain HTTP. No
 
 Common properties: `channel`, `devTools`, `standalone`, `platform`, `browser`, `$raw_user_agent`, `lang`, `viewport`, `dpr`, `session` (per page load), `sessions` (this device's count).
 
-**The dashboard is code.** `tools/posthog.mjs` creates (or updates in place) a *Shelf Control* dashboard with the insights the plan asks for, every one filtered to `channel = live`, and turns on *Discard client IP data* for the project. It needs a personal API key (Settings → User → Personal API keys) with the scopes `insight:write`, `dashboard:write`, `project:read` and `project:write`:
+**The dashboard is code, and GitHub applies it.** `tools/posthog.mjs` creates (or updates in place) a *Shelf Control* dashboard with the insights the plan asks for, every one filtered to `channel = live`, and turns on *Discard client IP data* for the project. The `PostHog dashboard` workflow runs it on every push to `dev` that changes the script, and by hand from the Actions tab once the workflow is on `main`, so nothing runs on anyone's machine. One-time setup: in PostHog, Settings → User → Personal API keys, create a key with the scopes `insight:write`, `dashboard:write`, `project:read` and `project:write`; in GitHub, Settings → Secrets and variables → Actions, add it as the secret `POSTHOG_API_KEY`. Once the portal is chosen, add its referrer host(s) as the variable `POSTHOG_PORTAL_HOSTS` and re-run. Locally, if you ever have a checkout:
 
 ```
 POSTHOG_API_KEY=phx_... node tools/posthog.mjs     # apply; re-run after editing the script
