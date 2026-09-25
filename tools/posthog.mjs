@@ -13,14 +13,19 @@
 // insight is filtered on channel = live, so play on /test/ never enters the numbers.
 //
 // The iteration 2 gate reads D1 and D7 from the portal cohort, not from all live traffic (friends, communities and the
-// developer arrive on live too). Once the portal is chosen, POSTHOG_PORTAL_HOSTS names its referrer host(s), comma separated
-// (the game records the referrer's host only), and the gate insight is added: a cohort of players whose first session was
-// referred from there. Without it the script says so and builds the rest.
+// developer arrive on live too). A portal's players are known by the build they play: the upload to a portal is assembled
+// with its `source` stamped (tools/assemble.sh, e.g. itch), which every event carries. POSTHOG_PORTAL_SOURCES names the
+// source(s) that count as the portal, comma separated; POSTHOG_PORTAL_HOSTS may add referrer host(s) as a fallback (a host
+// matches itself and its subdomains, so itch.io covers name.itch.io). With either set the gate insight is added: a cohort of
+// players whose first ever live session came from there. With neither the script says so and builds the rest.
 
 const HOST = process.env.POSTHOG_HOST || 'https://us.posthog.com';
 const KEY = process.env.POSTHOG_API_KEY || '';
 const DRY = process.argv.includes('--dry-run');
-const PORTAL_HOSTS = (process.env.POSTHOG_PORTAL_HOSTS || '').split(',').map(h => h.trim()).filter(Boolean);
+const list = (v) => (v || '').split(',').map(h => h.trim()).filter(Boolean);
+const PORTAL_SOURCES = list(process.env.POSTHOG_PORTAL_SOURCES), PORTAL_HOSTS = list(process.env.POSTHOG_PORTAL_HOSTS);
+const PORTAL = PORTAL_SOURCES.length || PORTAL_HOSTS.length;
+const q = (v) => `'${String(v).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 
 const live = { type: 'event', key: 'channel', operator: 'exact', value: ['live'] };
 const prop = (key, operator, value) => ({ type: 'event', key, operator, ...(value === undefined ? {} : { value: Array.isArray(value) ? value : [String(value)] }) });
@@ -57,7 +62,7 @@ GROUP BY levelNo ORDER BY levelNo`;
 // reporting cohort is date-bounded. D1 and D7 are shares of the players old enough to have had that day.
 const retentionTable = (cohortExpr) => `
 WITH firsts AS (
-  SELECT distinct_id, min(toDate(timestamp)) AS first_day, argMin(properties.referrer, timestamp) AS first_referrer
+  SELECT distinct_id, min(toDate(timestamp)) AS first_day, argMin(properties.referrer, timestamp) AS first_referrer, argMin(properties.source, timestamp) AS first_source
   FROM events
   WHERE properties.channel = 'live' AND event = 'session_start'
   GROUP BY distinct_id
@@ -78,7 +83,7 @@ returns AS (
   GROUP BY distinct_id, day
 ),
 players AS (
-  SELECT f.distinct_id AS distinct_id, f.first_day AS first_day, f.first_referrer AS first_referrer,
+  SELECT f.distinct_id AS distinct_id, f.first_day AS first_day, f.first_referrer AS first_referrer, f.first_source AS first_source,
     coalesce(d.chapters, 0) AS chapters, coalesce(d.daily, 0) AS daily,
     max(if(r.day = f.first_day + 1, 1, 0)) AS d1,
     max(if(r.day = f.first_day + 7, 1, 0)) AS d7
@@ -86,7 +91,7 @@ players AS (
   LEFT JOIN day0 AS d ON d.distinct_id = f.distinct_id
   LEFT JOIN returns AS r ON r.distinct_id = f.distinct_id
   WHERE f.first_day >= today() - 30
-  GROUP BY f.distinct_id, f.first_day, f.first_referrer, d.chapters, d.daily
+  GROUP BY f.distinct_id, f.first_day, f.first_referrer, f.first_source, d.chapters, d.daily
 )
 SELECT ${cohortExpr} AS cohort,
   count() AS players,
@@ -97,11 +102,15 @@ SELECT ${cohortExpr} AS cohort,
 FROM players
 GROUP BY cohort ORDER BY players DESC`;
 const MODE_COHORTS = retentionTable(`multiIf(daily AND NOT chapters, 'daily only', chapters AND NOT daily, 'chapters only', chapters AND daily, 'both', 'sessions only')`);
-const PORTAL_COHORT = () => retentionTable(`if(first_referrer IN (${PORTAL_HOSTS.map(h => `'${h.replace(/'/g, "\\'")}'`).join(', ')}), 'portal', 'elsewhere')`);
+const portalTest = () => [
+  ...(PORTAL_SOURCES.length ? [`first_source IN (${PORTAL_SOURCES.map(q).join(', ')})`] : []),
+  ...PORTAL_HOSTS.map(h => `first_referrer = ${q(h)} OR endsWith(first_referrer, ${q('.' + h)})`),
+].join(' OR ');
+const PORTAL_COHORT = () => retentionTable(`if(${portalTest()}, 'portal', 'elsewhere')`);
 const INSIGHTS = [
-  ...(PORTAL_HOSTS.length ? [{
+  ...(PORTAL ? [{
     name: 'Retention: portal cohort (the gate)',
-    description: `New players whose first ever live session was referred from ${PORTAL_HOSTS.join(' or ')}, against everyone else, with D1 and D7 as a share of the players old enough to have had that day. The iteration 2 gate: D1 at or above 25 % and D7 at or above 8 % on the portal row. The first session is taken from complete history, so a player who arrived from elsewhere first and found the portal later is not in the row.`,
+    description: `New players whose first ever live session came from the portal (${[...PORTAL_SOURCES.map(s => 'the ' + s + ' build'), ...PORTAL_HOSTS.map(h => 'a referrer on ' + h)].join(' or ')}), against everyone else, with D1 and D7 as a share of the players old enough to have had that day. The iteration 2 gate: D1 at or above 25 % and D7 at or above 8 % on the portal row. The first session is taken from complete history, so a player who arrived from elsewhere first and found the portal later is not in the row.`,
     query: sql(PORTAL_COHORT()),
   }] : []),
   {
@@ -184,7 +193,7 @@ async function api(method, path, body) {
 async function all(path) { const out = []; let next = HOST + path; while (next) { const page = await api('GET', next.replace(HOST, '')); out.push(...(page.results || [])); next = page.next; } return out; }
 
 async function main() {
-  if (!PORTAL_HOSTS.length) console.log('POSTHOG_PORTAL_HOSTS is not set: the portal-cohort retention insight (the gate) is skipped until the portal is chosen.\n');
+  if (!PORTAL) console.log('Neither POSTHOG_PORTAL_SOURCES nor POSTHOG_PORTAL_HOSTS is set: the portal-cohort retention insight (the gate) is skipped until the portal is chosen.\n');
   if (DRY) {
     console.log(`dry run: would apply to ${HOST}\n`);
     console.log(`dashboard "${DASHBOARD.name}"`);

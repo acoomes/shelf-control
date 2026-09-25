@@ -1,0 +1,39 @@
+# Pushes the itch.io build on every ship to main, and by hand from the Actions tab, so the upload is never done twice by
+# hand. The build is the live one with its source stamped itch (tools/assemble.sh), so every event from itch players
+# carries source: itch and the retention gate reads them as the portal cohort. butler uploads only what changed. What is
+# pushed is always main, whichever branch a manual run is started from: itch players get the shipped game and nothing else.
+# Needs the repository secret BUTLER_API_KEY (itch.io: Settings -> API keys) and the repository variable ITCH_TARGET, the
+# project as user/game (ajcdrift/shelf-control); the project page itself is created once, by hand, on itch.io.
+name: itch.io build
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: itch
+  cancel-in-progress: true
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Assemble the itch build
+        run: bash tools/assemble.sh . build/itch live itch
+      - name: Install butler
+        run: |
+          curl -fsSL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          mkdir -p butler-bin && unzip -q butler.zip -d butler-bin && chmod +x butler-bin/butler
+          butler-bin/butler -V
+      - name: Push to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+          ITCH_TARGET: ${{ vars.ITCH_TARGET }}
+        run: |
+          if [ -z "$BUTLER_API_KEY" ] || [ -z "$ITCH_TARGET" ]; then
+            echo "The secret BUTLER_API_KEY and the variable ITCH_TARGET (user/game) are needed; see the header of this workflow." >&2; exit 2
+          fi
+          butler-bin/butler push build/itch "$ITCH_TARGET:html" --userversion "$(git rev-parse --short HEAD)"

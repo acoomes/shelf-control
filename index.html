@@ -1162,7 +1162,7 @@ const T = { wallTop:'#FFE3EC', wallBottom:'#E4D7FF', well:'#2A2140', frame:'#4A3
 const FONT = 'Fredoka, ui-rounded, "Nunito", system-ui, sans-serif';
 /** Build channel. The live deploy (.github/workflows/pages.yml) rewrites this one line to 'live'; the file is otherwise identical.
  *  Developer tools (debug overlay, D key, seed field) show on the dev channel, or anywhere with ?debug=1; ?debug=0 hides them. */
-const BUILD = { channel: 'dev' };
+const BUILD = { channel: 'dev', source: 'web' };   // channel: dev or live; source: where this build is distributed (web, itch), stamped by tools/assemble.sh
 const devTools = (() => { try { const q = new URLSearchParams(location.search).get('debug'); if (q === '1') return true; if (q === '0') return false; } catch (e) { /* no location */ } return BUILD.channel !== 'live'; })();
 
 // ------------------------------ utils ------------------------------
@@ -1256,7 +1256,7 @@ const Telemetry = (() => {
   const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
   const platform = /iPhone|iPad|iPod/.test(ua) ? 'ios' : /Android/.test(ua) ? 'android' : /Mobile/.test(ua) ? 'mobile' : 'desktop';
   const browser = /Edg/.test(ua) ? 'edge' : /CriOS|Chrome/.test(ua) ? 'chrome' : /Firefox|FxiOS/.test(ua) ? 'firefox' : /Safari/.test(ua) ? 'safari' : 'other';
-  const base = () => ({ channel: BUILD.channel, devTools, standalone, platform, browser, $raw_user_agent: ua, lang: (typeof navigator !== 'undefined' && navigator.language) || '',
+  const base = () => ({ channel: BUILD.channel, source: BUILD.source, devTools, standalone, platform, browser, $raw_user_agent: ua, lang: (typeof navigator !== 'undefined' && navigator.language) || '',
     viewport: `${window.innerWidth}x${window.innerHeight}`, dpr: window.devicePixelRatio || 1, session, sessions: sessions.count, $lib: 'shelf-control', $lib_version: '2' });
   let jsonMode = false;   // a text/plain post needs no CORS preflight; if the endpoint refuses it, the documented JSON form is used from then on
   async function post(body) {

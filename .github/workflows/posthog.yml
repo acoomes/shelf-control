@@ -4,7 +4,8 @@
 # manual run can never apply main's older copy of the script over what dev last applied. Needs the repository secret POSTHOG_API_KEY, a PostHog personal API key with the scopes insight:write,
 # dashboard:write, project:read and project:write; the repository variable POSTHOG_PROJECT_ID, the project's numeric id
 # from its PostHog URL, so automation never depends on which project the key's owner happens to have open; and, once the
-# portal is chosen, the repository variable POSTHOG_PORTAL_HOSTS with its referrer host(s), comma separated.
+# portal is chosen, the repository variable POSTHOG_PORTAL_SOURCES with the build source(s) that count as the portal (itch),
+# and optionally POSTHOG_PORTAL_HOSTS with referrer host(s) as a fallback, both comma separated.
 # Settings -> Secrets and variables -> Actions. Without the secret or the id the run fails with the script's own
 # instruction and nothing else happens. One run at a time, and a newer run cancels an older one still queued or running:
 # two applying at once could each create the same insight, and runs in a group start in no guaranteed order, so the
@@ -43,4 +44,5 @@ jobs:
         env:
           POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
           POSTHOG_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID }}
+          POSTHOG_PORTAL_SOURCES: ${{ vars.POSTHOG_PORTAL_SOURCES }}
           POSTHOG_PORTAL_HOSTS: ${{ vars.POSTHOG_PORTAL_HOSTS }}
