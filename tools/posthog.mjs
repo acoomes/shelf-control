@@ -21,8 +21,9 @@
 
 // Every event carries the page's host. POSTHOG_KNOWN_HOSTS names the hosts the game is published on, comma separated (a host
 // matches itself and its subdomains); when set, every insight counts only those, so a copy of the file hosted elsewhere
-// (the token is public by design, so a copy phones home too) cannot enter the numbers. The "Hosts seen" table is unfiltered
-// on purpose: a host you did not publish on is a copy.
+// (the token is public by design, so a copy phones home too) cannot enter the numbers. Events with no host at all are
+// admitted: the live build recorded none before the property existed, and those players are real and stay in the
+// complete-history retention. The "Hosts seen" table is unfiltered on purpose: a host you did not publish on is a copy.
 const HOST = process.env.POSTHOG_HOST || 'https://us.posthog.com';
 const KEY = process.env.POSTHOG_API_KEY || '';
 const DRY = process.argv.includes('--dry-run');
@@ -34,8 +35,12 @@ const hostRe = KNOWN_HOSTS.length ? `^([^.]+\\.)*(${KNOWN_HOSTS.map(h => h.repla
 const q = (v) => `'${String(v).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 
 const live = { type: 'event', key: 'channel', operator: 'exact', value: ['live'] };
-const LIVE = hostRe ? [live, { type: 'event', key: 'host', operator: 'regex', value: hostRe }] : [live];
-const liveSql = (alias = '') => `${alias}properties.channel = 'live'` + (hostRe ? ` AND match(toString(${alias}properties.host), '${hostRe.replace(/\\/g, '\\\\')}')` : '');
+// With known hosts, the filter is a property group: channel = live AND (host is not set OR host matches), since a flat list
+// of filters is an AND and cannot say "or"; the SQL insights say the same in their WHERE.
+const LIVE = hostRe
+  ? { type: 'AND', values: [{ type: 'AND', values: [live] }, { type: 'OR', values: [{ type: 'event', key: 'host', operator: 'is_not_set' }, { type: 'event', key: 'host', operator: 'regex', value: hostRe }] }] }
+  : [live];
+const liveSql = (alias = '') => `${alias}properties.channel = 'live'` + (hostRe ? ` AND (${alias}properties.host IS NULL OR ${alias}properties.host = '' OR match(toString(${alias}properties.host), '${hostRe.replace(/\\/g, '\\\\')}'))` : '');
 const prop = (key, operator, value) => ({ type: 'event', key, operator, ...(value === undefined ? {} : { value: Array.isArray(value) ? value : [String(value)] }) });
 const ev = (event, properties, extra) => ({ kind: 'EventsNode', event, name: event, math: 'total', ...(properties ? { properties } : {}), ...(extra || {}) });
 const range = { date_from: '-30d' };
