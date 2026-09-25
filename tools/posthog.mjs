@@ -7,8 +7,10 @@
 //   node tools/posthog.mjs --dry-run                          # print what would be created, no key needed
 //
 // The key is a personal API key (Settings → User → Personal API keys) with the scopes insight:write, dashboard:write,
-// project:read and project:write. POSTHOG_HOST defaults to the US cloud's private API host; POSTHOG_PROJECT_ID to the key's
-// current project. Every insight is filtered on channel = live, so play on /test/ never enters the numbers.
+// project:read and project:write. POSTHOG_HOST defaults to the US cloud's private API host. POSTHOG_PROJECT_ID is the
+// project's numeric id from its PostHog URL; by hand it may be left out (the key owner's current project is used), under
+// automation (GITHUB_ACTIONS) it is required, so a run never lands in whichever project someone last had open. Every
+// insight is filtered on channel = live, so play on /test/ never enters the numbers.
 //
 // The iteration 2 gate reads D1 and D7 from the portal cohort, not from all live traffic (friends, communities and the
 // developer arrive on live too). Once the portal is chosen, POSTHOG_PORTAL_HOSTS names its referrer host(s), comma separated
@@ -191,7 +193,10 @@ async function main() {
     return;
   }
   if (!KEY.startsWith('phx_')) { console.error('POSTHOG_API_KEY must be a personal API key (phx_...). See the header of this file.'); process.exit(2); }
-  const project = process.env.POSTHOG_PROJECT_ID ? await api('GET', `/api/projects/${process.env.POSTHOG_PROJECT_ID}/`) : await api('GET', '/api/projects/@current/');
+  const PROJECT_ID = (process.env.POSTHOG_PROJECT_ID || '').trim();
+  if (process.env.GITHUB_ACTIONS && !/^\d+$/.test(PROJECT_ID)) { console.error('POSTHOG_PROJECT_ID must be the project\'s numeric id (from its PostHog URL) when run by automation. See the header of this file.'); process.exit(2); }
+  const project = PROJECT_ID ? await api('GET', `/api/projects/${PROJECT_ID}/`) : await api('GET', '/api/projects/@current/');
+  if (!PROJECT_ID) console.log(`POSTHOG_PROJECT_ID is not set: using the key owner's current project, ${project.id}.`);
   const P = `/api/projects/${project.id}`;
   console.log(`project ${project.id} "${project.name}" on ${HOST}`);
 

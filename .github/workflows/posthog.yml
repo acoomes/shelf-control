@@ -1,9 +1,11 @@
 # Applies the PostHog dashboard that tools/posthog.mjs defines, so nothing has to run on anyone's machine: on every push
 # to dev that changes the script (or this file), and by hand from the Actions tab ("Run workflow") once this file is on
 # main. Needs the repository secret POSTHOG_API_KEY, a PostHog personal API key with the scopes insight:write,
-# dashboard:write, project:read and project:write, and, once the portal is chosen, the repository variable
-# POSTHOG_PORTAL_HOSTS with its referrer host(s), comma separated. Settings -> Secrets and variables -> Actions.
-# Without the secret the run fails with the script's own instruction and nothing else happens.
+# dashboard:write, project:read and project:write; the repository variable POSTHOG_PROJECT_ID, the project's numeric id
+# from its PostHog URL, so automation never depends on which project the key's owner happens to have open; and, once the
+# portal is chosen, the repository variable POSTHOG_PORTAL_HOSTS with its referrer host(s), comma separated.
+# Settings -> Secrets and variables -> Actions. Without the secret or the id the run fails with the script's own
+# instruction and nothing else happens. One run at a time: two applying at once could each create the same insight.
 name: PostHog dashboard
 on:
   push:
@@ -19,6 +21,9 @@ on:
         default: false
 permissions:
   contents: read
+concurrency:
+  group: posthog-dashboard
+  cancel-in-progress: false
 jobs:
   apply:
     runs-on: ubuntu-latest
@@ -31,4 +36,5 @@ jobs:
         run: node tools/posthog.mjs ${{ inputs.dry_run == true && '--dry-run' || '' }}
         env:
           POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          POSTHOG_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID }}
           POSTHOG_PORTAL_HOSTS: ${{ vars.POSTHOG_PORTAL_HOSTS }}
