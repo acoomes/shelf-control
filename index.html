@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- Shelf Control. Copyright (c) 2026 Andrew Coomes. All rights reserved. Playing it where it is published is fine; copying, modifying, redistributing or hosting it is not. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -1256,7 +1257,7 @@ const Telemetry = (() => {
   const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
   const platform = /iPhone|iPad|iPod/.test(ua) ? 'ios' : /Android/.test(ua) ? 'android' : /Mobile/.test(ua) ? 'mobile' : 'desktop';
   const browser = /Edg/.test(ua) ? 'edge' : /CriOS|Chrome/.test(ua) ? 'chrome' : /Firefox|FxiOS/.test(ua) ? 'firefox' : /Safari/.test(ua) ? 'safari' : 'other';
-  const base = () => ({ channel: BUILD.channel, source: BUILD.source, devTools, standalone, platform, browser, $raw_user_agent: ua, lang: (typeof navigator !== 'undefined' && navigator.language) || '',
+  const base = () => ({ channel: BUILD.channel, source: BUILD.source, host: (typeof location !== 'undefined' && location.host) || '', devTools, standalone, platform, browser, $raw_user_agent: ua, lang: (typeof navigator !== 'undefined' && navigator.language) || '',
     viewport: `${window.innerWidth}x${window.innerHeight}`, dpr: window.devicePixelRatio || 1, session, sessions: sessions.count, $lib: 'shelf-control', $lib_version: '2' });
   let jsonMode = false;   // a text/plain post needs no CORS preflight; if the endpoint refuses it, the documented JSON form is used from then on
   async function post(body) {

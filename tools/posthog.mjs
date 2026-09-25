@@ -19,21 +19,29 @@
 // matches itself and its subdomains, so itch.io covers name.itch.io). With either set the gate insight is added: a cohort of
 // players whose first ever live session came from there. With neither the script says so and builds the rest.
 
+// Every event carries the page's host. POSTHOG_KNOWN_HOSTS names the hosts the game is published on, comma separated (a host
+// matches itself and its subdomains); when set, every insight counts only those, so a copy of the file hosted elsewhere
+// (the token is public by design, so a copy phones home too) cannot enter the numbers. The "Hosts seen" table is unfiltered
+// on purpose: a host you did not publish on is a copy.
 const HOST = process.env.POSTHOG_HOST || 'https://us.posthog.com';
 const KEY = process.env.POSTHOG_API_KEY || '';
 const DRY = process.argv.includes('--dry-run');
 const list = (v) => (v || '').split(',').map(h => h.trim()).filter(Boolean);
 const PORTAL_SOURCES = list(process.env.POSTHOG_PORTAL_SOURCES), PORTAL_HOSTS = list(process.env.POSTHOG_PORTAL_HOSTS);
 const PORTAL = PORTAL_SOURCES.length || PORTAL_HOSTS.length;
+const KNOWN_HOSTS = list(process.env.POSTHOG_KNOWN_HOSTS);
+const hostRe = KNOWN_HOSTS.length ? `^([^.]+\\.)*(${KNOWN_HOSTS.map(h => h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})$` : null;
 const q = (v) => `'${String(v).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 
 const live = { type: 'event', key: 'channel', operator: 'exact', value: ['live'] };
+const LIVE = hostRe ? [live, { type: 'event', key: 'host', operator: 'regex', value: hostRe }] : [live];
+const liveSql = (alias = '') => `${alias}properties.channel = 'live'` + (hostRe ? ` AND match(toString(${alias}properties.host), '${hostRe.replace(/\\/g, '\\\\')}')` : '');
 const prop = (key, operator, value) => ({ type: 'event', key, operator, ...(value === undefined ? {} : { value: Array.isArray(value) ? value : [String(value)] }) });
 const ev = (event, properties, extra) => ({ kind: 'EventsNode', event, name: event, math: 'total', ...(properties ? { properties } : {}), ...(extra || {}) });
 const range = { date_from: '-30d' };
 const viz = (source) => ({ kind: 'InsightVizNode', source });
 
-const retention = (target, returning) => viz({ kind: 'RetentionQuery', dateRange: range, properties: [live],
+const retention = (target, returning) => viz({ kind: 'RetentionQuery', dateRange: range, properties: LIVE,
   retentionFilter: { retentionType: 'retention_first_time', period: 'Day', totalIntervals: 8, targetEntity: target, returningEntity: returning } });
 // Two questions need a row per play or per player rather than a count of events, which property filters cannot express:
 // a play's terminal outcome (a continued play reports two endings) and a player's mode (daily only, chapters only, both).
@@ -51,7 +59,7 @@ FROM (
     max(toInt64OrNull(toString(properties.levelNo))) AS levelNo,
     argMax(properties.result, multiIf(event = 'level_end', toUnixTimestamp(timestamp), 0)) AS outcome
   FROM events
-  WHERE properties.channel = 'live' AND event IN ('level_start', 'level_end')
+  WHERE ${liveSql()} AND event IN ('level_start', 'level_end')
     AND properties.levelNo IS NOT NULL AND properties.play IS NOT NULL AND timestamp > now() - INTERVAL 30 DAY
   GROUP BY play
 )
@@ -64,7 +72,7 @@ const retentionTable = (cohortExpr) => `
 WITH firsts AS (
   SELECT distinct_id, min(toDate(timestamp)) AS first_day, argMin(properties.referrer, timestamp) AS first_referrer, argMin(properties.source, timestamp) AS first_source
   FROM events
-  WHERE properties.channel = 'live' AND event = 'session_start'
+  WHERE ${liveSql()} AND event = 'session_start'
   GROUP BY distinct_id
 ),
 day0 AS (
@@ -73,13 +81,13 @@ day0 AS (
     countIf(e.properties.daily IS NOT NULL) > 0 AS daily
   FROM events AS e
   JOIN firsts AS f ON f.distinct_id = e.distinct_id
-  WHERE e.properties.channel = 'live' AND e.event = 'level_start' AND toDate(e.timestamp) = f.first_day
+  WHERE ${liveSql('e.')} AND e.event = 'level_start' AND toDate(e.timestamp) = f.first_day
   GROUP BY e.distinct_id
 ),
 returns AS (
   SELECT distinct_id, toDate(timestamp) AS day
   FROM events
-  WHERE properties.channel = 'live' AND event = 'session_start'
+  WHERE ${liveSql()} AND event = 'session_start'
   GROUP BY distinct_id, day
 ),
 players AS (
@@ -136,7 +144,7 @@ const INSIGHTS = [
   {
     name: 'Level funnel: start to win, by level',
     description: 'Plays that start a curated level and win it, one bar per level number, aggregated by the play id rather than by person so a retry is its own play. The step where the curve breaks is the level to look at; "Level outcomes" below says whether the drop was a loss or a walk-away.',
-    query: viz({ kind: 'FunnelsQuery', dateRange: range, properties: [live],
+    query: viz({ kind: 'FunnelsQuery', dateRange: range, properties: LIVE,
       series: [ev('level_start', [prop('levelNo', 'is_set')]), ev('level_end', [prop('result', 'exact', 'won')])],
       breakdownFilter: { breakdown: 'levelNo', breakdown_type: 'event', breakdown_limit: 40 },
       funnelsFilter: { funnelVizType: 'steps', funnelWindowInterval: 1, funnelWindowIntervalUnit: 'hour', funnelAggregateByHogQL: 'properties.play' } }),
@@ -149,37 +157,45 @@ const INSIGHTS = [
   {
     name: 'Auto-finish: share of wins it played out',
     description: 'Wins whose ending the game played by itself (autoLoops above 0) over all wins. Auto-finish is on by default and the settings toggle is not an event, so this is usage, not preference: how often a win reaches the assured ending it was built for.',
-    query: viz({ kind: 'TrendsQuery', dateRange: range, properties: [live], interval: 'week',
+    query: viz({ kind: 'TrendsQuery', dateRange: range, properties: LIVE, interval: 'week',
       series: [ev('level_end', [prop('result', 'exact', 'won'), prop('autoLoops', 'gt', 0)]), ev('level_end', [prop('result', 'exact', 'won')])],
       trendsFilter: { formula: 'A/B', display: 'ActionsLineGraph', aggregationAxisFormat: 'percentage_scaled' } }),
   },
   {
     name: 'Continue take-rate',
     description: 'level_continue over the failures that offered it (level_end where result = failed and continuesUsed = 0). This number decides whether "+1 box" can carry a rewarded ad in iteration 3.',
-    query: viz({ kind: 'TrendsQuery', dateRange: range, properties: [live], interval: 'week',
+    query: viz({ kind: 'TrendsQuery', dateRange: range, properties: LIVE, interval: 'week',
       series: [ev('level_continue'), ev('level_end', [prop('result', 'exact', 'failed'), prop('continuesUsed', 'exact', 0)])],
       trendsFilter: { formula: 'A/B', display: 'ActionsLineGraph', aggregationAxisFormat: 'percentage_scaled' } }),
   },
   {
     name: 'Continue: offered, taken, then won',
     description: 'The three counts behind the take-rate, so a rate on a small base is read for what it is: failures that offered the continue, continues taken, and continued plays that went on to win.',
-    query: viz({ kind: 'TrendsQuery', dateRange: range, properties: [live], interval: 'day',
+    query: viz({ kind: 'TrendsQuery', dateRange: range, properties: LIVE, interval: 'day',
       series: [ev('level_end', [prop('result', 'exact', 'failed'), prop('continuesUsed', 'exact', 0)]), ev('level_continue'), ev('level_end', [prop('result', 'exact', 'won'), prop('continuesUsed', 'exact', 1)])],
       trendsFilter: { display: 'ActionsLineGraph' } }),
   },
   {
     name: 'Daily: plays, wins, shares',
     description: 'Daily plays started (one per play, retries included; a play\'s start is counted rather than its endings, since a continued play reports two), daily wins, and shares pressed. A share is the loop the "collectible, shareable" claim rests on.',
-    query: viz({ kind: 'TrendsQuery', dateRange: range, properties: [live], interval: 'day',
+    query: viz({ kind: 'TrendsQuery', dateRange: range, properties: LIVE, interval: 'day',
       series: [ev('level_start', [prop('daily', 'is_set')]), ev('level_end', [prop('daily', 'is_set'), prop('result', 'exact', 'won')]), ev('daily_share')],
       trendsFilter: { display: 'ActionsLineGraph' } }),
   },
   {
     name: 'Sessions and installs',
     description: 'Sessions a day, unique devices a day, and home-screen installs. The denominator for everything above.',
-    query: viz({ kind: 'TrendsQuery', dateRange: range, properties: [live], interval: 'day',
+    query: viz({ kind: 'TrendsQuery', dateRange: range, properties: LIVE, interval: 'day',
       series: [ev('session_start'), ev('session_start', null, { math: 'dau' }), ev('install')],
       trendsFilter: { display: 'ActionsLineGraph' } }),
+  },
+  {
+    name: 'Hosts seen (copies show up here)',
+    description: 'Live sessions by the host the page ran on, every host, on purpose: the game is published on the hosts in POSTHOG_KNOWN_HOSTS and nowhere else, so any other host here is a copy of the file phoning home. The other insights count known hosts only.',
+    query: viz({ kind: 'TrendsQuery', dateRange: range, properties: [live], interval: 'day',
+      series: [ev('session_start'), ev('session_start', null, { math: 'dau' })],
+      breakdownFilter: { breakdown: 'host', breakdown_type: 'event', breakdown_limit: 25 },
+      trendsFilter: { display: 'ActionsTable' } }),
   },
 ];
 const DASHBOARD = { name: 'Shelf Control', description: 'Iteration 2: do strangers come back? Every insight is filtered to channel = live. Defined in tools/posthog.mjs; re-run it rather than editing here.' };
@@ -193,7 +209,9 @@ async function api(method, path, body) {
 async function all(path) { const out = []; let next = HOST + path; while (next) { const page = await api('GET', next.replace(HOST, '')); out.push(...(page.results || [])); next = page.next; } return out; }
 
 async function main() {
-  if (!PORTAL) console.log('Neither POSTHOG_PORTAL_SOURCES nor POSTHOG_PORTAL_HOSTS is set: the portal-cohort retention insight (the gate) is skipped until the portal is chosen.\n');
+  if (!PORTAL) console.log('Neither POSTHOG_PORTAL_SOURCES nor POSTHOG_PORTAL_HOSTS is set: the portal-cohort retention insight (the gate) is skipped until the portal is chosen.');
+  if (!KNOWN_HOSTS.length) console.log('POSTHOG_KNOWN_HOSTS is not set: insights count every host; set it to the hosts the game is published on once "Hosts seen" shows them.');
+  console.log('');
   if (DRY) {
     console.log(`dry run: would apply to ${HOST}\n`);
     console.log(`dashboard "${DASHBOARD.name}"`);
