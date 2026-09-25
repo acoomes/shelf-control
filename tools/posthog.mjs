@@ -123,17 +123,17 @@ const PORTAL_COHORT = () => retentionTable(`if(${portalTest()}, 'portal', 'elsew
 const INSIGHTS = [
   ...(PORTAL ? [{
     name: 'Retention: portal cohort (the gate)',
-    description: `New players whose first ever live session came from the portal (${[...PORTAL_SOURCES.map(s => 'the ' + s + ' build'), ...PORTAL_HOSTS.map(h => 'a referrer on ' + h)].join(' or ')}), against everyone else, with D1 and D7 as a share of the players old enough to have had that day. The iteration 2 gate: D1 at or above 25 % and D7 at or above 8 % on the portal row. The first session is taken from complete history, so a player who arrived from elsewhere first and found the portal later is not in the row.`,
+    description: `The iteration 2 gate: D1 at or above 25 % and D7 at or above 8 % on the portal row. New players whose first ever live session came from the portal (${[...PORTAL_SOURCES.map(s => 'the ' + s + ' build'), ...PORTAL_HOSTS.map(h => 'a referrer on ' + h)].join(' or ')}) against everyone else; D1 and D7 are shares of the players old enough to have had that day.`,
     query: sql(PORTAL_COHORT()),
   }] : []),
   {
     name: 'Retention: all live players, day 1 to day 7',
-    description: 'Every new player on the live build (first ever session_start), whatever brought them, who opens the game again on each of the next seven days. Context for the gate, not the gate: friends, communities and the developer arrive on live too.',
+    description: 'Every new live player (first ever session_start), whatever brought them, who opens the game again on each of the next seven days. Context for the gate, not the gate: friends, communities and the developer arrive on live too.',
     query: retention({ id: 'session_start', type: 'events' }, { id: 'session_start', type: 'events' }),
   },
   {
     name: 'Retention: chapter players',
-    description: 'Cohort: players by the day of their first curated-level play. Return: any later session. Read against the daily players\' curve: the roadmap warns the daily can flatter D1 while the curve decides D7. A player who does both is in both cohorts; the mode table below separates them.',
+    description: 'Cohort: players by the day of their first curated-level play. Return: any later session. Read against the daily players\' curve: the daily can flatter D1 while the curve decides D7. A player who does both is in both; the mode table separates them.',
     query: retention({ id: 'level_start', type: 'events', properties: [prop('levelNo', 'is_set')] }, { id: 'session_start', type: 'events' }),
   },
   {
@@ -143,12 +143,12 @@ const INSIGHTS = [
   },
   {
     name: 'Retention by mode: daily only, chapters only, both',
-    description: 'Each new live player in exactly one cohort by what they played on their first day (frozen there: a daily player who tries the chapters on day 3 stays a daily player), with D1 and D7 as a share of the players old enough to have had that day. This is the roadmap\'s daily-only versus chapter comparison; the two retention curves above overlap, this table does not.',
+    description: 'Each new live player in exactly one cohort by what they played on their first day, frozen there, with D1 and D7 as shares of the players old enough to have had that day. The roadmap\'s daily-only versus chapter comparison: the two curves above overlap, this table does not.',
     query: sql(MODE_COHORTS),
   },
   {
     name: 'Level funnel: start to win, by level',
-    description: 'Plays that start a curated level and win it, one bar per level number, aggregated by the play id rather than by person so a retry is its own play. The step where the curve breaks is the level to look at; "Level outcomes" below says whether the drop was a loss or a walk-away.',
+    description: 'Plays that start a curated level and win it, one bar per level number, aggregated by play rather than by person so a retry is its own play. Where the curve breaks is the level to look at; "Level outcomes" says whether the drop was a loss or a walk-away.',
     query: viz({ kind: 'FunnelsQuery', dateRange: range, properties: LIVE,
       series: [ev('level_start', [prop('levelNo', 'is_set')]), ev('level_end', [prop('result', 'exact', 'won')])],
       breakdownFilter: { breakdown: 'levelNo', breakdown_type: 'event', breakdown_limit: 40 },
@@ -156,33 +156,33 @@ const INSIGHTS = [
   },
   {
     name: 'Level outcomes by level: started, won, failed, abandoned',
-    description: 'One row per level number, one count per play: its terminal outcome is the last level_end it reported, so a continued play counts once, as whatever it ended on. Abandoned is a play with no ending at all: the player left mid-level, which the funnel alone cannot tell from a loss.',
+    description: 'One row per level, one count per play: the outcome is the last level_end it reported, so a continued play counts once. Abandoned is a play with no ending at all: the player left mid-level, which the funnel alone cannot tell from a loss.',
     query: sql(LEVEL_OUTCOMES),
   },
   {
     name: 'Auto-finish: share of wins it played out',
-    description: 'Wins whose ending the game played by itself (autoLoops above 0) over all wins. Auto-finish is on by default and the settings toggle is not an event, so this is usage, not preference: how often a win reaches the assured ending it was built for.',
+    description: 'Wins whose ending the game played by itself (autoLoops above 0) over all wins. Auto-finish is on by default and the toggle is not an event, so this is usage, not preference.',
     query: viz({ kind: 'TrendsQuery', dateRange: range, properties: LIVE, interval: 'week',
       series: [ev('level_end', [prop('result', 'exact', 'won'), prop('autoLoops', 'gt', 0)]), ev('level_end', [prop('result', 'exact', 'won')])],
       trendsFilter: { formula: 'A/B', display: 'ActionsLineGraph', aggregationAxisFormat: 'percentage_scaled' } }),
   },
   {
     name: 'Continue take-rate',
-    description: 'level_continue over the failures that offered it (level_end where result = failed and continuesUsed = 0). This number decides whether "+1 box" can carry a rewarded ad in iteration 3.',
+    description: 'level_continue over the failures that offered it (level_end where result = failed and continuesUsed = 0). Decides whether "+1 box" can carry a rewarded ad in iteration 3.',
     query: viz({ kind: 'TrendsQuery', dateRange: range, properties: LIVE, interval: 'week',
       series: [ev('level_continue'), ev('level_end', [prop('result', 'exact', 'failed'), prop('continuesUsed', 'exact', 0)])],
       trendsFilter: { formula: 'A/B', display: 'ActionsLineGraph', aggregationAxisFormat: 'percentage_scaled' } }),
   },
   {
     name: 'Continue: offered, taken, then won',
-    description: 'The three counts behind the take-rate, so a rate on a small base is read for what it is: failures that offered the continue, continues taken, and continued plays that went on to win.',
+    description: 'The three counts behind the take-rate, so a rate on a small base is read for what it is: failures that offered the continue, continues taken, continued plays that went on to win.',
     query: viz({ kind: 'TrendsQuery', dateRange: range, properties: LIVE, interval: 'day',
       series: [ev('level_end', [prop('result', 'exact', 'failed'), prop('continuesUsed', 'exact', 0)]), ev('level_continue'), ev('level_end', [prop('result', 'exact', 'won'), prop('continuesUsed', 'exact', 1)])],
       trendsFilter: { display: 'ActionsLineGraph' } }),
   },
   {
     name: 'Daily: plays, wins, shares',
-    description: 'Daily plays started (one per play, retries included; a play\'s start is counted rather than its endings, since a continued play reports two), daily wins, and shares pressed. A share is the loop the "collectible, shareable" claim rests on.',
+    description: 'Daily plays started (one per play, retries included; a start is counted rather than endings, since a continued play reports two), daily wins, and shares pressed. A share is the loop the "collectible, shareable" claim rests on.',
     query: viz({ kind: 'TrendsQuery', dateRange: range, properties: LIVE, interval: 'day',
       series: [ev('level_start', [prop('daily', 'is_set')]), ev('level_end', [prop('daily', 'is_set'), prop('result', 'exact', 'won')]), ev('daily_share')],
       trendsFilter: { display: 'ActionsLineGraph' } }),
@@ -196,7 +196,7 @@ const INSIGHTS = [
   },
   {
     name: 'Hosts seen (copies show up here)',
-    description: 'Live sessions by the host the page ran on, every host, on purpose: the game is published on the hosts in POSTHOG_KNOWN_HOSTS and nowhere else, so any other host here is a copy of the file phoning home. The other insights count known hosts only.',
+    description: 'Live sessions by the host the page ran on, every host on purpose: the game is published on the hosts in POSTHOG_KNOWN_HOSTS and nowhere else, so any other host here is a copy phoning home. The other insights count known hosts only.',
     query: viz({ kind: 'TrendsQuery', dateRange: range, properties: [live], interval: 'day',
       series: [ev('session_start'), ev('session_start', null, { math: 'dau' })],
       breakdownFilter: { breakdown: 'host', breakdown_type: 'event', breakdown_limit: 25 },
@@ -212,6 +212,9 @@ async function api(method, path, body) {
   return json;
 }
 async function all(path) { const out = []; let next = HOST + path; while (next) { const page = await api('GET', next.replace(HOST, '')); out.push(...(page.results || [])); next = page.next; } return out; }
+
+// PostHog caps an insight's description at 400 characters and its name at 400; refuse before any call rather than half way.
+for (const i of INSIGHTS) for (const [field, max] of [['description', 400], ['name', 400]]) if (i[field].length > max) { console.error(`insight "${i.name}": ${field} is ${i[field].length} characters, the limit is ${max}`); process.exit(2); }
 
 async function main() {
   if (!PORTAL) console.log('Neither POSTHOG_PORTAL_SOURCES nor POSTHOG_PORTAL_HOSTS is set: the portal-cohort retention insight (the gate) is skipped until the portal is chosen.');
