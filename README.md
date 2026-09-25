@@ -33,7 +33,7 @@ One generated level per UTC date, the same on every device: the art rotates thro
 
 ## itch.io
 
-The stranger playtest's portal listing. The project page is created once by hand on itch.io (Kind: HTML, embed: click to launch in fullscreen, mobile friendly); after that the `itch.io build` workflow pushes every ship to `main` with butler, and by hand from the Actions tab. It uploads the live build assembled with `tools/assemble.sh . out live itch`, whose `source` stamp every telemetry event carries, so itch players are the portal cohort in PostHog by the build they play, not by a referrer that an iframe may withhold. Setup: the repository secret `BUTLER_API_KEY` (itch.io, Settings → API keys) and the variable `ITCH_TARGET` (`user/game`); then `POSTHOG_PORTAL_SOURCES=itch` gives the dashboard its gate.
+The stranger playtest's portal listing, live at https://ajcdrift.itch.io/shelf-control since 2026-09-25. The project page is created once by hand on itch.io (Kind: HTML, embed: click to launch in fullscreen, mobile friendly); after that the `itch.io build` workflow pushes every ship to `main` with butler, and by hand from the Actions tab. It uploads the live build assembled with `tools/assemble.sh . out live itch`, whose `source` stamp every telemetry event carries, so itch players are the portal cohort in PostHog by the build they play, not by a referrer that an iframe may withhold. Setup: the repository secret `BUTLER_API_KEY` (itch.io, Settings → API keys) and the variable `ITCH_TARGET` (`user/game`); then `POSTHOG_PORTAL_SOURCES=itch` gives the dashboard its gate.
 
 ## Telemetry
 
