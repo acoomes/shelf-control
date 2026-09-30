@@ -34,7 +34,7 @@ const info = await page.evaluate((id) => {
   const lv = SC.GEN.generateLevel({ art: a.art, artId: id, preset: 'medium', seed: 3, candidates: 24, playouts: 40 });
   SC.UI.playGenerated(lv, 'build');
   const L = SC.Game.L;
-  return { name: a.name, w: L.W, h: L.h ?? L.H, cell: L.cell, blocks: a.art.join('').replace(/\./g, '').length, cats: SC.Game.sim.cats.length, refLine: lv.refLine ? lv.refLine.length : null, achieved: lv.achieved, genMs: Math.round(performance.now() - t0) };
+  return { name: a.name, w: L.W, h: L.h ?? L.H, cell: L.cell, blocks: a.art.join('').replace(/\./g, '').length, cats: SC.Game.sim.cats.length, refLine: Array.isArray(lv.ref) ? lv.ref.length : null, achieved: lv.achieved, genMs: Math.round(performance.now() - t0) };
 }, artId);
 if (!info) { console.error(`no art "${artId}"`); process.exit(2); }
 await page.waitForTimeout(700);
