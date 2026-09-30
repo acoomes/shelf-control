@@ -358,6 +358,38 @@ const ARTS = {
       "BBYWWYTYYBB",
       "BBYYYYTYYBB",
       "GGGGGGGGGGG" ] },
+  // ---- bigger pictures (14x14 and up): the scale ladder for chapters 6 to 8. `big` keeps them out of the daily rotation
+  // and out of a re-bake of chapters 1 to 5; the generated chooser offers them, so they can be played on any build.
+  balloon: { name:'Balloon', art:[   // 14x14, 196 blocks, 8 colours · big
+      "BBBBBWOOWBBBBB",
+      "BBBBYWOOWYBBBB",
+      "BBBRYWOOWYRBBB",
+      "WWBRYWOOWYRBBB",
+      "WWWRYWOOWYRBBB",
+      "BBBRYWOOWYRBBB",
+      "BBBBYWOOWYBBBB",
+      "BBBBBWOOWBBBBB",
+      "BBBBBBOOBBBBBB",
+      "BBBBBKBBKBBBBB",
+      "BBBBBTTTTBBBBB",
+      "BBBBBTTTTBBBBB",
+      "GGGBBBBBBBBGGG",
+      "GGGGGGGGGGGGGG" ], big:true },
+  rocket: { name:'Rocket', art:[   // 14x14, 196 blocks, 7 colours · big
+      "PPPPPPRRPPPPPP",
+      "PYPPPRRRRPPPPP",
+      "PPPPPWWWWPPPYP",
+      "PPPPPWBBWPPPPP",
+      "PPPPPWBBWPPPPP",
+      "PPPPPWWWWPYPPP",
+      "PYPPPWWWWPPPPP",
+      "PPPRRWWWWRRPPP",
+      "PPRRRWWWWRRRPP",
+      "PPRRPPOOPPRRPP",
+      "PPPPPOYYOPPPPP",
+      "PPPPPPYYPPPPPP",
+      "GGGPPPPPPPPGGG",
+      "GGGGGGGGGGGGGG" ], big:true },
 };
 
 // ---- BAKED LEVELS: written by `node tools/curate.mjs`; do not edit by hand. Entries with pinned:true keep their hand-made
@@ -1098,7 +1130,7 @@ function createSim(level, opts = {}) {
 // live here for the same reason.
 const DAILY = (() => {
   const EPOCH = Date.UTC(2026, 8, 24), DAY = 86400000;
-  const ART_ORDER = Object.keys(ARTS).filter(id => id !== 'heart');
+  const ART_ORDER = Object.keys(ARTS).filter(id => id !== 'heart' && !ARTS[id].big);   // the tutorial heart and the big pictures sit out
   const BAND = [25, 40], TRIES = 4;
   const dayStart = (ms) => Math.floor(ms / DAY) * DAY;
   const number = (ms) => Math.floor((dayStart(ms) - EPOCH) / DAY) + 1;

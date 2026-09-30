@@ -88,7 +88,7 @@ CURVE.forEach((entry, i) => {
   }
   const boss = typeof entry === 'object', target = boss ? entry.boss : entry;
   const presetName = `curve_${n}`; GEN.PRESETS[presetName] = presetFor(target, boss);
-  const candidates = Object.keys(ARTS).filter(a => !chapterArts[chapter].has(a) && uses[a] < MAX_USES)
+  const candidates = Object.keys(ARTS).filter(a => !ARTS[a].big && !chapterArts[chapter].has(a) && uses[a] < MAX_USES)   // the big pictures belong to later chapters
     .sort((a, b) => uses[a] - uses[b] || (a < b ? -1 : 1));
   const pool = candidates.slice(0, ARTS_PER_SLOT);
   let best = null, nearest = null, nearestBoss = null, nearestCeil = null, nearestClimb = null, nearestLook = null;
