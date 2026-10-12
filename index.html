@@ -130,6 +130,7 @@ const CONFIG = {
   burstDrop: false,        // experimental; breaks difficulty, see plan §4.3
   autoFinish: true,        // the last cat with blocks left laps the shelf by itself instead of asking for the same tap again
   autoFinishSpeed: 2.5,    // path speed multiplier while it does
+  fastCatsSpeed: 1.6,      // path speed multiplier with the "Faster cats" setting on (the big pictures take 40 to 60 dispatches)
   assist: true, symbols: false, sound: true,
   dprCap: 2, fixedStep: 1 / 120,
 };
@@ -390,6 +391,36 @@ const ARTS = {
       "PPPPPPYYPPPPPP",
       "GGGPPPPPPPPGGG",
       "GGGGGGGGGGGGGG" ], big:true },
+  mug: { name:'Mug', art:[   // 14x14, 196 blocks, 7 colours · big
+      "NNNNNNWNNNNNNN",
+      "NNNNWNWNWNNNNN",
+      "NNNNWNNNWNNNNN",
+      "NNNNNNNNNNNNNN",
+      "NNTKKKKKKTNNNN",
+      "NNBBBBBBBBNNNN",
+      "NNBBBBBBBBBBNN",
+      "NNBYYYYYYBNBNN",
+      "NNBYYYYYYBNBNN",
+      "NNBBBBBBBBBBNN",
+      "NNBBBBBBBBNNNN",
+      "NNBBBBBBBBNNNN",
+      "GGGGGGGGGGGGGG",
+      "GGGGGGGGGGGGGG" ], big:true },
+  frog: { name:'Frog', art:[   // 14x14, 196 blocks, 7 colours · big
+      "YYBBBBBBBBBBBB",
+      "YYYBBBBBBBBBBB",
+      "BBBBBBBBBBBBBB",
+      "BBBWWWBBWWWBBB",
+      "BBBWKWBBWKWBBB",
+      "BBGGGGGGGGGGBB",
+      "BBGGGGGGGGGGBB",
+      "BBGGGGGGGGGGBB",
+      "BGGGGKKKKGGGGB",
+      "BGGGGGRRGGGGGB",
+      "BGGGGGGGGGGGGB",
+      "PPPPPPPPPPPPPP",
+      "PPPPPPPPPPPPPP",
+      "PPPPPPPPPPPPPP" ], big:true },
   lighthouse: { name:'Lighthouse', art:[   // 18x18, 324 blocks, 7 colours · big
       "BBBBBBBBBBBBBBBYYB",
       "BBBBBBBBBBBBBBYYYY",
@@ -623,6 +654,38 @@ const LEVELS = [
     ref:[0,2,2,0,2,0,7,0,7,4,5,7,4,1,4,8,3,7,1,1,4,8,9,9,9,6,6,1,4,9] },
   { id:"rainbow", name:"Rainbow", artId:"rainbow", art:ARTS["rainbow"].art, lanes:[ "O8 G2 B15 O8", "G2 P8 Y8 B2 R2", "B7 R16 G4", "W18 B2 Y2 R4 B12" ], pinned:true,
     curve:{ target:0.05, boss:true }, rating:{ randomWin:0.025, greedyWins:false } },
+  { id:"balloon-41-d0f5d4", name:"Balloon", artId:"balloon", art:ARTS["balloon"].art, lanes:[ "G20 B12 B12 O4 B10 W4 O2 O2 R2 O2 W9 B9 Y2 O2 O2 Y4 B4 Y2 Y2 W2 B2 B2", "B20 T8 K2 B18 O2 B4 B3 R2 R2 B6 B3 O2 W2 Y2 B2 W3 R2 W1" ],
+    seed:4, curve:{ target:0.6, band:[34,64] },
+    rating:{ randomWin:0.6, greedyWins:true, dispatches:50 },
+    ref:[0,0,22,22,23,23,1,24,2,3,4,5,3,6,5,7,25,25,26,27,8,28,29,9,10,10,30,11,11,12,13,31,14,15,15,16,32,17,33,34,18,19,35,36,37,37,38,20,39,21] },
+  { id:"frog-42-190e94", name:"Frog", artId:"frog", art:ARTS["frog"].art, lanes:[ "P14 G14 P8 R2 K3 B3 K2 B8 B13 B10", "P20 B3 K1 G11 G9 G20 G6 W4 W6 B20 Y5 B14" ],
+    seed:5, curve:{ target:0.52, band:[34,64] },
+    rating:{ randomWin:0.52, greedyWins:true, dispatches:40 },
+    ref:[0,10,10,11,11,11,1,1,1,2,12,13,3,14,4,5,15,15,15,6,16,17,7,16,18,18,8,6,18,19,19,9,20,20,21,21,21,21,21,21] },
+  { id:"mug-43-a5d411", name:"Mug", artId:"mug", art:ARTS["mug"].art, lanes:[ "G20 G8 N19 B6 B4 T2 N17 B8 N7 W6 N20", "B8 B8 B7 N5 Y12 B9 K6 N20 N4" ],
+    seed:4, curve:{ target:0.45, band:[34,64] },
+    rating:{ randomWin:0.453, greedyWins:true, dispatches:35 },
+    ref:[0,0,11,11,1,2,12,2,13,2,2,3,14,15,4,15,16,5,6,6,7,6,7,8,5,17,18,18,9,9,10,19,10,10,10] },
+  { id:"rocket-44-019b93", name:"Rocket", artId:"rocket", art:ARTS["rocket"].art, lanes:[ "P20 R1 R2 W4 W3 P12 Y1 W10 P19 Y3 B2 W1 R4", "G20 Y4 O4 P20 P8 P15 R5 R5 B2 W6 R2 R1 P20 P2" ],
+    seed:1, curve:{ target:0.38, band:[34,64] },
+    rating:{ randomWin:0.38, greedyWins:true, dispatches:53 },
+    ref:[13,13,0,0,14,14,1,15,2,3,3,16,4,17,2,18,19,18,15,5,5,20,5,18,16,6,16,7,7,7,7,21,22,22,23,22,8,8,8,9,24,25,10,22,26,9,25,11,25,25,12,12,25] },
+  { id:"mug-45-f778b0", name:"Mug", artId:"mug", art:ARTS["mug"].art, lanes:[ "N5 N6 B8 N6 B11 T2 B4 W1 K2 N6 W1", "G20 G8 B20 Y12 N20 B7 K4 N20 N18 W2 W2 N4 N7" ],
+    seed:4, curve:{ target:0.32, band:[34,64] },
+    rating:{ randomWin:0.32, greedyWins:true, dispatches:43 },
+    ref:[11,11,0,0,0,12,13,13,1,2,13,13,3,4,4,4,4,14,14,5,4,15,15,15,16,17,6,18,17,7,19,18,19,18,19,20,8,9,21,22,10,23,23] },
+  { id:"balloon-46-4f33c1", name:"Balloon", artId:"balloon", art:ARTS["balloon"].art, lanes:[ "G14 B8 O2 Y2 G6 Y2 W4 O5 R3 B8 Y2 O5 B20 W9 O4", "B8 T8 B16 K2 Y6 B20 R5 W6 O2 W2 B18 B9" ],
+    seed:1, curve:{ target:0.27, band:[34,64] },
+    rating:{ randomWin:0.27, greedyWins:true, dispatches:55 },
+    ref:[0,15,16,1,1,16,17,17,17,18,2,3,17,19,19,19,4,20,20,20,5,6,6,21,7,21,21,7,7,22,22,22,23,8,8,24,9,10,11,11,11,12,12,12,13,13,14,25,25,25,14,26,26,14,26] },
+  { id:"frog-47-29a6d2", name:"Frog", artId:"frog", art:ARTS["frog"].art, lanes:[ "P20 G5 K6 G15 B3", "B2 P2 R2 G20 B16 W10", "P20 B2 G20 B3 B5 B20 Y5 B20" ],
+    seed:8, curve:{ target:0.22, band:[34,64] },
+    rating:{ randomWin:0.213, greedyWins:true, dispatches:41 },
+    ref:[0,0,11,5,5,1,12,11,12,13,13,13,6,2,7,2,14,8,8,9,9,9,9,3,3,9,3,15,2,10,10,16,17,18,17,4,16,18,16,18,18] },
+  { id:"rocket-48-8166d2", name:"Rocket", artId:"rocket", art:ARTS["rocket"].art, lanes:[ "O4 R8 R2 G6 Y2 Y1", "Y2 P20 Y3 W12 R2 W12 P20 R7 P11", "G14 P20 P5 R1 B4 P20 P20" ],
+    seed:6, curve:{ target:0.05, boss:true, band:[34,64] },
+    rating:{ randomWin:0.01, greedyWins:false, dispatches:59 },
+    ref:[15,16,16,16,0,16,6,1,1,1,7,7,7,7,7,7,7,2,8,2,17,3,7,0,17,9,9,18,9,10,11,11,11,11,10,12,12,12,4,19,19,11,20,20,20,13,13,21,4,21,21,21,14,14,14,14,5,14,14] },
 ];
 // ---- END BAKED LEVELS ----
 
@@ -1324,7 +1387,7 @@ const Store = (() => {
     clear() { for (const k of Object.keys(mem)) delete mem[k]; try { if (ls) for (const k of Object.keys(ls)) if (k.startsWith('sc.')) ls.removeItem(k); } catch (e) { /* ignore */ } },
   };
 })();
-const settings = Object.assign({ sound: CONFIG.sound, symbols: CONFIG.symbols, assist: CONFIG.assist, autoFinish: CONFIG.autoFinish, motion: 'auto', telemetry: true, seenTips: {} }, Store.get('sc.settings', {}));
+const settings = Object.assign({ sound: CONFIG.sound, symbols: CONFIG.symbols, assist: CONFIG.assist, autoFinish: CONFIG.autoFinish, fastCats: false, motion: 'auto', telemetry: true, seenTips: {} }, Store.get('sc.settings', {}));
 const progress = Object.assign({ done: {} }, Store.get('sc.progress', {}));
 const saveSettings = () => { Store.set('sc.settings', settings); applyMotionClass(); };
 const saveProgress = () => Store.set('sc.progress', progress);
@@ -2100,7 +2163,7 @@ function update(dt) {
     } else if (a.state === 'path') {
       let maxS = Infinity;
       if (prev && (prev.state === 'path' || prev.state === 'wait')) maxS = prev.pathS - L.gapPx;
-      const mul = a.fast ? CONFIG.autoFinishSpeed : 1;
+      const mul = (a.fast ? CONFIG.autoFinishSpeed : 1) * (settings.fastCats ? CONFIG.fastCatsSpeed : 1);   // faster cats: a setting for the big pictures
       const v = L.segSpeed(a.pathS) * mul; let ns = Math.min(a.pathS + v * dt, maxS); if (ns < a.pathS) ns = a.pathS;
       a.moving = ns > a.pathS + 1e-9; a.pathS = ns;
       const p = L.pathPoint(a.pathS); a.seg = p.seg; a.x = p.x; a.y = p.y - 15 * a.s; a.dir = 1;
@@ -2561,8 +2624,8 @@ const UI = (() => {
     g.appendChild(el('div', 'meta', devTools ? 'any art · any preset · seeded' : 'any art · any preset'));
     g.addEventListener('click', () => { Audio.init(); showGen(); });
     tiles.appendChild(g);
-    // the big pictures (14x14 and up) have no chapter yet: a preview tile each opens the chooser on that art at medium
-    for (const [aid, a] of Object.entries(ARTS)) if (a.big) {
+    // a big picture without a chapter yet: a preview tile opens the chooser on that art at medium (the tile retires once a bake gives the art a level)
+    for (const [aid, a] of Object.entries(ARTS)) if (a.big && !LEVELS.some(lv => lv.artId === aid)) {
       const b = el('button', 'tile gen big'); b.type = 'button';
       b.appendChild(artThumb(a.art, true, 104, 84));
       b.appendChild(el('div', 'name', a.name));
@@ -2749,6 +2812,7 @@ const UI = (() => {
       settings.autoFinish = v; saveSettings();
       if (!v) for (const a of Game.actors) a.fast = false;   // a cat mid-lap drops back to walking pace and takes the slide
     })));
+    box.appendChild(toggleRow('Faster cats (big pictures)', checkbox(settings.fastCats, v => { settings.fastCats = v; saveSettings(); })));
     const sel = document.createElement('select');
     for (const [v, n] of [['auto', 'System'], ['on', 'Reduced'], ['off', 'Full']]) { const o = document.createElement('option'); o.value = v; o.textContent = n; if (settings.motion === v) o.selected = true; sel.appendChild(o); }
     sel.addEventListener('change', () => { settings.motion = sel.value; saveSettings(); });

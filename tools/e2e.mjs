@@ -257,8 +257,8 @@ const scenarios = {
     ok(tele[tele.length - 1].mode === 'yoink', 'telemetry records mode=yoink');
   },
   async generated(api) {
-    const big = await api.page.evaluate(() => ({ arts: Object.entries(SC.ARTS).filter(([, a]) => a.big).map(([id]) => id), tiles: [...document.querySelectorAll('#tiles .tile.big .name')].map(e => e.textContent), meta: document.querySelector('#tiles .tile.big .meta').textContent }));
-    ok(big.arts.length >= 2 && big.tiles.length === big.arts.length && /14×14 · preview/.test(big.meta), `one preview tile per big picture (${big.tiles.join(', ')}; ${big.meta})`);
+    const big = await api.page.evaluate(() => { const arts = Object.entries(SC.ARTS).filter(([id, a]) => a.big && !SC.LEVELS.some(l => l.artId === id)); return { arts: arts.map(([id]) => id), baked: Object.entries(SC.ARTS).filter(([id, a]) => a.big && SC.LEVELS.some(l => l.artId === id)).length, dims: `${arts[0][1].art[0].length}×${arts[0][1].art.length}`, tiles: [...document.querySelectorAll('#tiles .tile.big .name')].map(e => e.textContent), meta: document.querySelector('#tiles .tile.big .meta').textContent }; });
+    ok(big.arts.length >= 2 && big.baked >= 2 && big.tiles.length === big.arts.length && big.meta.includes(`${big.dims} · preview`), `one preview tile per big picture without a chapter, none for the ${big.baked} baked ones (${big.tiles.join(', ')}; ${big.meta})`);
     await api.clickSel('#tiles .tile.big'); await api.run(200);
     const pre = await api.page.evaluate(() => { const sel = document.querySelectorAll('#panel select'); return { art: sel[0].value, preset: sel[1].value, name: SC.ARTS[sel[0].value].name }; });
     ok(pre.art === big.arts[0] && pre.preset === 'medium', `the tile opens the chooser on ${pre.name} at ${pre.preset}`);
@@ -370,7 +370,10 @@ const scenarios = {
   async chapters(api) {
     // the level select pages by chapter: eight levels a page plus the generated tile, remembered, following the last level played
     let s = await api.page.evaluate(() => ({ pills: document.querySelectorAll('#chapters .chap').length, on: document.querySelector('#chapters .chap.on').textContent, tiles: document.querySelectorAll('#tiles .tile:not(.gen)').length, gen: document.querySelectorAll('#tiles .tile.gen:not(.big)').length, big: document.querySelectorAll('#tiles .tile.big').length, first: document.querySelector('#tiles .tile .name').textContent }));
-    ok(s.pills === 5 && s.on === '1' && s.tiles === 8 && s.gen === 1 && /^1\. /.test(s.first), `chapter 1: eight levels, the generated tile and the big-picture previews (${JSON.stringify(s)})`);
+    ok(s.pills === 6 && s.on === '1' && s.tiles === 8 && s.gen === 1 && s.big === 4 && /^1\. /.test(s.first), `chapter 1: six chapter pills, eight levels, the generated tile and four big-picture previews (${JSON.stringify(s)})`);
+    await api.clickSel('#chapters .chap', 5); await api.run(20);
+    s = await api.page.evaluate(() => ({ on: document.querySelector('#chapters .chap.on').textContent, first: document.querySelector('#tiles .tile .name').textContent, tiles: document.querySelectorAll('#tiles .tile:not(.gen)').length, last: [...document.querySelectorAll('#tiles .tile:not(.gen) .meta')].pop().textContent, blocks: document.querySelector('#tiles .tile:not(.gen) .meta').textContent }));
+    ok(s.on === '6' && /^41\. Balloon/.test(s.first) && s.tiles === 8 && /196 blocks/.test(s.blocks) && /needs lookahead/.test(s.last), `chapter 6 is the 14×14 rung: level 41 is Balloon, 196 blocks, level 48 needs lookahead (${s.last})`);
     await api.clickSel('#chapters .chap', 2); await api.run(20);
     s = await api.page.evaluate(() => ({ on: document.querySelector('#chapters .chap.on').textContent, first: document.querySelector('#tiles .tile .name').textContent, tiles: document.querySelectorAll('#tiles .tile:not(.gen)').length }));
     ok(s.on === '3' && /^17\. /.test(s.first) && s.tiles === 8, 'chapter 3 starts at level 17');

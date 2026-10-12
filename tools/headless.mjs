@@ -80,10 +80,11 @@ for (const lv of PINNED) {
     if (fail) bad.push(`${lv.id}: ${fail}`);
   }
   ok(bad.length === 0, `every curated level wins in the sim along its baked reference line (${CURATED.length} levels)${bad.length ? ': ' + bad.join('; ') : ''}`);
-  const inBand = (l) => l.rating.dispatches >= 25 && l.rating.dispatches <= 40;
+  const bandOf = (l) => (l.curve && l.curve.band) || [25, 40];   // chapters 1 to 5: the plan's H4 band; a later rung carries its own band in the level
+  const inBand = (l) => l.rating.dispatches >= bandOf(l)[0] && l.rating.dispatches <= bandOf(l)[1];
   const overrides = CURATED.filter(l => l.curve && l.curve.offBand);                       // baked with --allow-off-band: a written decision, carried in the level itself
   const band = CURATED.filter(l => inBand(l) || (l.curve && l.curve.offBand)).length;
-  ok(band === CURATED.length, `every curated level sits in the H4 band of 25–40 dispatches${overrides.length ? `, except ${overrides.length} baked outside it by written decision (${overrides.map(l => `${l.id} ${l.rating.dispatches}`).join(', ')})` : ''} (${CURATED.length - overrides.length}/${CURATED.length} in band)`);
+  ok(band === CURATED.length, `every curated level sits in its rung's dispatch band (25–40 for chapters 1 to 5, the level's own band after)${overrides.length ? `, except ${overrides.length} baked outside it by written decision (${overrides.map(l => `${l.id} ${l.rating.dispatches}`).join(', ')})` : ''} (${CURATED.length - overrides.length}/${CURATED.length} in band)`);
   ok(overrides.every(l => !inBand(l)), 'no level carries an off-band override it does not need');
   // the six references keep their hand-made lanes for the Appendix B cross-check; exactly two of them run outside the band,
   // by a written decision in the iteration 2 plan (§2.1): heart is the tutorial and short, rainbow is the finale and long
@@ -128,14 +129,15 @@ for (const lv of PINNED) {
   const isBoss = (l) => !!(l.curve && l.curve.boss);
   const bosses = LEVELS.filter(isBoss), others = LEVELS.filter(l => !isBoss(l));
   ok(bosses.length > 0 && bosses.every(l => !l.rating.greedyWins), `every chapter boss needs lookahead (${bosses.map(l => l.id).join(', ')})`);
-  // plan §2.1 shape: chapter 1 (onboarding) has no boss; chapters 2 to 5 each close with one, hard (ceiling 0.05) from chapter 3 on
+  // plan §2.1 shape: chapter 1 (onboarding) has no boss; chapters 2 to 6 each close with one, hard (ceiling 0.05) from chapter 3 on
   { const wrong = LEVELS.map((l, i) => { const n = i + 1, want = n % 8 === 0 && n > 8; return isBoss(l) !== want ? `${n}:${l.id}${want ? ' not a boss' : ' is a boss'}` : (want && n > 16 && !(l.curve.target <= 0.05)) ? `${n}:${l.id} not hard` : null; }).filter(Boolean);
-    ok(LEVELS.length === 40 && wrong.length === 0, `bosses close chapters 2 to 5 and nothing else (16 lookahead; 24, 32 and 40 hard); chapter 1 has none${wrong.length ? ' (NOT: ' + wrong.join(', ') + ')' : ''}`); }
+    ok(LEVELS.length === 48 && wrong.length === 0, `bosses close chapters 2 to 6 and nothing else (16 lookahead; 24, 32, 40 and 48 hard); chapter 1 has none${wrong.length ? ' (NOT: ' + wrong.join(', ') + ')' : ''}`); }
   ok(others.every(l => l.rating.greedyWins), `lookahead levels live only in boss slots: every other level is greedy-solvable${others.filter(l => !l.rating.greedyWins).length ? ' (NOT: ' + others.filter(l => !l.rating.greedyWins).map(l => l.id).join(', ') + ')' : ''}`);
   // the curve descends: outside the chapter bosses (and the pinned lookahead finale) no level is rated more than 0.10 above the previous one (plan §2.1)
   { let prev = null; const climbs = [];
-    for (const l of LEVELS) { if (isBoss(l)) continue; const r = l.rating.randomWin; if (prev && r > prev.r + 0.10 + 1e-9) climbs.push(`${l.id} ${r} after ${prev.id} ${prev.r}`); prev = { id: l.id, r }; }
-    ok(climbs.length === 0, `the curve never climbs back by more than 0.10 outside the chapter bosses${climbs.length ? ' (' + climbs.join('; ') + ')' : ''}`); }
+    LEVELS.forEach((l, i) => { if (isBoss(l)) return; if (i === 40) prev = null;   // level 41 opens the 14x14 rung: the descent restarts with the bigger pictures
+      const r = l.rating.randomWin; if (prev && r > prev.r + 0.10 + 1e-9) climbs.push(`${l.id} ${r} after ${prev.id} ${prev.r}`); prev = { id: l.id, r }; });
+    ok(climbs.length === 0, `the curve never climbs back by more than 0.10 outside the chapter bosses and the rung restart at level 41${climbs.length ? ' (' + climbs.join('; ') + ')' : ''}`); }
   const hardBosses = bosses.filter(l => l.curve.target <= 0.05);   // the pinned finale carries its ceiling too
   ok(hardBosses.every(l => l.rating.randomWin <= l.curve.target), `every hard boss is rated at or below its 5 % ceiling (${hardBosses.map(l => `${l.id} ${l.rating.randomWin}`).join(', ')})`);
 }
