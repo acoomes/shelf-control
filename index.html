@@ -390,6 +390,86 @@ const ARTS = {
       "PPPPPPYYPPPPPP",
       "GGGPPPPPPPPGGG",
       "GGGGGGGGGGGGGG" ], big:true },
+  lighthouse: { name:'Lighthouse', art:[   // 18x18, 324 blocks, 7 colours · big
+      "BBBBBBBBBBBBBBBYYB",
+      "BBBBBBBBBBBBBBYYYY",
+      "BBBBBBBBKKBBBBBYYB",
+      "BBBBBBBKYYKBBBBBBB",
+      "BBBBBBBKYYKBBBBBBB",
+      "BBBBBBBKKKKBBBBBBB",
+      "BBBBBBBRRRRBBBBBBB",
+      "BBBBBBBWWWWBBBBBBB",
+      "BBBBBBRRRRRRBBBBBB",
+      "BBBBBBWWWWWWBBBBBB",
+      "BBBBBBRRRRRRBBBBBB",
+      "BBBBBWWWWWWWWBBBBB",
+      "BBBBBRRRRRRRRBBBBB",
+      "BBBBTTTTTTTTTTBBBB",
+      "PPPTTTTTTTTTTTTPPP",
+      "PPPPTTTTTTTTTTPPPP",
+      "PPPPPPPPPPPPPPPPPP",
+      "PPPPPPPPPPPPPPPPPP" ], big:true },
+  whale: { name:'Whale', art:[   // 18x18, 324 blocks, 6 colours · big
+      "NNNNNNNNNNNNNNYYNN",
+      "NNNNNNNNWNNNNYYYYN",
+      "NNNNNNNWNWNNNNYYNN",
+      "NNNNNNNNWNNNNNNNNN",
+      "NNNNNNNNWNNNNNNNNN",
+      "NNNNNNPPPPNNNNNNNN",
+      "NNNNPPPPPPPPPNNNNN",
+      "NNPPPPPPPPPPPPPNNN",
+      "NPPPKPPPPPPPPPPPNN",
+      "NPPPPPPPPPPPPPPPPN",
+      "BPWWWWWWWPPPPPPPPP",
+      "BBWWWWWWWPPPPPPBPB",
+      "BBBWWWWWPPPPPBBPPB",
+      "BBBBPPPPPPPBBBPPPB",
+      "BBBBBBBBBBBBBBBBBB",
+      "BBBBBBBBBBBBBBBBBB",
+      "BBBBBBBBBBBBBBBBBB",
+      "BBBBBBBBBBBBBBBBBB" ], big:true },
+  castle: { name:'Castle', art:[   // 24x20, 480 blocks, 7 colours · big
+      "BBBBBBBBBBBBBBBBBBBBBBBB",
+      "BBBBBBBBBBBTRRBBBBBBYBBB",
+      "BBBBBBBBBBBTBBBBBBBYYYBB",
+      "BBBRRBBBBBWWWWBBBBBRRBBB",
+      "BBRRRRBBBBWKKWBBBBRRRRBB",
+      "BBWWWWBBBBWWWWBBBBWWWWBB",
+      "BBWWWWBBBBWWWWBBBBWWWWBB",
+      "BBWKKWWBWBWWWWWBWBWKKWBB",
+      "BBWKKWWWWWWWWWWWWWWKKWBB",
+      "BBWWWWWWKWWKWWKWWKWWWWBB",
+      "BBWWWWWWWWWWWWWWWWWWWWBB",
+      "BBWWWWWWWWWWWWWWWWWWWWBB",
+      "BBWWWWWWWWKKKKWWWWWWWWBB",
+      "BBWWWWWWWWKKKKWWWWWWWWBB",
+      "BBWWWWWWWWKKKKWWWWWWWWBB",
+      "BBWWWWWWWWKKKKWWWWWWWWBB",
+      "GGGGGGGGGGGGGGGGGGGGGGGG",
+      "GGGGGGGGGGGGGGGGGGGGGGGG",
+      "GGGGGGGGGGGGGGGGGGGGGGGG",
+      "GGGGGGGGGGGGGGGGGGGGGGGG" ], big:true },
+  sailboat: { name:'Sailboat', art:[   // 24x20, 480 blocks, 7 colours · big
+      "BBBBBBBBBBBBBBBBBBBBBBBB",
+      "BBBYBBBBBBBBKYYBBBBBBBBB",
+      "BBYYYBBBBBBBKBBBBBBBBBBB",
+      "BBBYBBBBBBBWKRBBBBBBBBBB",
+      "BBBBBBBBBBWWKRRBBBBBBBBB",
+      "BBBBBBBBBWWWKRRRBBBBBBBB",
+      "BBBBBBBBWWWWKRRRRBBBBBBB",
+      "BBBBBBBWWWWWKRRRRRBBBBBB",
+      "BBBBBBWWWWWWKRRRRRRBBBBB",
+      "BBBBBWWWWWWWKRRRRRRRBBBB",
+      "BBBBWWWWWWWWKRRRRRRRRBBB",
+      "BBBWWWWWWWWWKBBBBBBBBBBB",
+      "BBBTTTTTTTTTTTTTTTTTTBBB",
+      "BBBBTTTTTTTTTTTTTTTTBBBB",
+      "BBBBBTTTTTTTTTTTTTTBBBBB",
+      "PPPPPPPPPPPPPPPPPPPPPPPP",
+      "PPPPPPPPPPPPPPPPPPPPPPPP",
+      "PPPPPPPPPPPPPPPPPPPPPPPP",
+      "PPPPPPPPPPPPPPPPPPPPPPPP",
+      "PPPPPPPPPPPPPPPPPPPPPPPP" ], big:true },
 };
 
 // ---- BAKED LEVELS: written by `node tools/curate.mjs`; do not edit by hand. Entries with pinned:true keep their hand-made
@@ -851,8 +931,16 @@ const GEN = (() => {
    * art: string[] rows. preset: key of PRESETS. Returns a level object usable by createSim, plus ratings.
    */
   // 64 candidates rather than the plan's 80: the plan's own rule for staying under 400 ms is to cut candidates before playouts
-  function generateLevel({ art, artId, preset = 'easy', seed = 1, reverse = false, candidates = 64, playouts = 100, finalists = 6, extraPlayouts = 200, trayCap = 5, retryCandidates = 32, retryBatches = 3 }) {
+  // Rating cost grows with the picture (a playout moves every block), so a big picture gets fewer candidates: 64 up to
+  // 150 blocks, scaled down to a floor of 24, which keeps a 24x20 tutorial under the budget on a slow desktop. A caller's own count wins.
+  const candidatesFor = (blocks) => Math.max(24, Math.round(64 * Math.min(1, 150 / blocks)));
+  function generateLevel({ art, artId, preset = 'easy', seed = 1, reverse = false, candidates, playouts = 100, finalists = 6, extraPlayouts = 200, trayCap = 5, retryCandidates = 32, retryBatches = 3 }) {
     const p = PRESETS[preset]; if (!p) throw new Error(`unknown preset ${preset}`);
+    const blocks = art.join('').replace(/\./g, '').length, big = blocks > 150;
+    if (candidates === undefined) candidates = candidatesFor(blocks);
+    // a random player fails more often the more blocks it moves, so on a big picture every preset runs one lane short
+    // (never under two): measured on the 14x14 to 24x20 arts, medium then lands on its 30% target instead of near 5%
+    const genLanes = big ? Math.max(2, p.lanes - 1) : p.lanes;
     const refTrayMax = Math.min(p.refTrayMax, trayCap);   // the reference line may use at most this many boxes, so it replays at trayCap by construction
     let cols = columns(art);
     if (reverse) cols = cols.map(s => s.slice().reverse());
@@ -871,7 +959,7 @@ const GEN = (() => {
     const pool = [];
     const addCandidates = (count) => {
       for (let i = 0; i < count; i++) {
-        const g = generate(cols, rng, { lanes: p.lanes, trayCap, refTrayMax, pBig: p.pBig, bigMult: p.bigMult });
+        const g = generate(cols, rng, { lanes: genLanes, trayCap, refTrayMax, pBig: p.pBig, bigMult: p.bigMult });
         if (!replay(g.cols, g.lanes, g.ref, g.where, trayCap)) throw new Error('generated level failed replay()');
         const wins = Math.round(randomWinRate(g.cols, g.lanes, trayCap, rng, playouts) * playouts);
         const greedyWins = playout(g.cols, g.lanes, trayCap, rng, true);
@@ -2473,6 +2561,15 @@ const UI = (() => {
     g.appendChild(el('div', 'meta', devTools ? 'any art · any preset · seeded' : 'any art · any preset'));
     g.addEventListener('click', () => { Audio.init(); showGen(); });
     tiles.appendChild(g);
+    // the big pictures (14x14 and up) have no chapter yet: a preview tile each opens the chooser on that art at medium
+    for (const [aid, a] of Object.entries(ARTS)) if (a.big) {
+      const b = el('button', 'tile gen big'); b.type = 'button';
+      b.appendChild(artThumb(a.art, true, 104, 84));
+      b.appendChild(el('div', 'name', a.name));
+      b.appendChild(el('div', 'meta', `big picture · ${a.art[0].length}×${a.art.length} · preview`));
+      b.addEventListener('click', () => { Audio.init(); showGen({ artId: aid, preset: 'medium', seed: (Math.random() * 1e9) >>> 0 }); });
+      tiles.appendChild(b);
+    }
   }
   // ---- daily level (plan §2.2): one generated level per UTC date, a streak, share text ----
   const dailyBox = $('#daily'), a2hs = $('#a2hs');
@@ -2677,7 +2774,7 @@ const UI = (() => {
     const modeSel = document.createElement('select');
     for (const m of ['build', 'yoink']) { const o = document.createElement('option'); o.value = m; o.textContent = m; if ((spec.mode || CONFIG.mode) === m) o.selected = true; modeSel.appendChild(o); }
     box.appendChild(toggleRow('Art', artSel)); box.appendChild(toggleRow('Preset', preSel)); if (devTools) box.appendChild(toggleRow('Seed', seedIn)); box.appendChild(toggleRow('Mode', modeSel));
-    const info = el('p', 'small', 'Generates 80 candidates, rates each with 100 random playouts, keeps the one closest to the preset target.'); box.appendChild(info);
+    const info = el('p', 'small', 'Generates up to 64 candidates (fewer for a big picture), rates each with 100 random playouts, keeps the one closest to the preset target.'); box.appendChild(info);
     const row = el('div', 'row');
     if (devTools) row.appendChild(button('Random seed', 'secondary', () => { seedIn.value = String((Math.random() * 1e9) >>> 0); }));
     row.appendChild(button('Generate & play', 'good', () => {
