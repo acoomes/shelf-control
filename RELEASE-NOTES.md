@@ -17,9 +17,12 @@ The rest of slice 3 is people work: the stranger playtest itself, and H1 and H3 
 
 ## Iteration 3 · scale ladder (in progress)
 
-**Status:** on `dev`. [PR #18](https://github.com/acoomes/shelf-control/pull/18) on 2026-09-30 (`e60934e`), preview tiles in the PR after it.
+**Status:** on `dev`. [PR #18](https://github.com/acoomes/shelf-control/pull/18) on 2026-09-30 (`e60934e`), [PR #19](https://github.com/acoomes/shelf-control/pull/19) on 2026-10-12 (`64c89f7`), chapter 6 in the PR after it.
 
-- **Bigger pictures, first rung.** Balloon and Rocket at 14×14 (196 blocks, cells 21 px at phone width), marked `big` so they sit out of the daily rotation and of any re-bake of chapters 1 to 5. Each has a preview tile beside *Generated* on every chapter page that opens the chooser on that picture at medium, so the feel of a 14×14 level is one tap from the level select before chapters 6 to 8 exist. `tools/art-preview.mjs` renders a generated level on any art for a look before it is baked.
+- **Bigger pictures.** Balloon and Rocket at 14×14 (196 blocks, cells 21 px at phone width), then Mug and Frog at 14×14, Lighthouse and Whale at 18×18 (324 blocks, 16 px) and Castle and Sailboat at 24×20 (480 blocks, 12 px, the floor). All marked `big`, so they sit out of the daily rotation and of any re-bake of chapters 1 to 5. A big picture without a chapter yet has a preview tile beside *Generated* on every chapter page that opens the chooser on it at medium. `tools/art-preview.mjs` renders a generated level on any art for a look before it is baked.
+- **The generator on a big picture.** Over 150 blocks the candidate count scales down (64 to a floor of 24, since every playout moves every block) and every preset runs one lane short, never under two: a random player fails more often the more blocks it moves, and that is what puts medium on its 30% target on a big board instead of near 5%. Small pictures and the daily's seeds are untouched.
+- **Chapter 6: the 14×14 rung.** Eight curated levels on Balloon, Rocket, Mug and Frog, from 0.60 at level 41 down to 0.22 and a hard boss at 48, in a dispatch band of 34 to 64. The curation tool now works by rung (band, art pool, reuse within a chapter, seeds, and the descent restarting at the rung), and a rung bake leaves chapters 1 to 5 byte-identical. Six chapter pills on the level select.
+- **Faster cats.** A setting, off by default, that runs cats' paths at 1.6× for the long levels. Pace only; the puzzle and the grace timer are unchanged.
 
 ---
 

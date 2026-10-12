@@ -6,7 +6,7 @@
 //   node tools/curate.mjs            # bake into index.html and print the curve
 //   node tools/curate.mjs --dry      # print the curve only
 //   --seeds N (3)  --arts N (8)      # seeds per art per slot, arts tried per slot: more is slower and slightly better
-//   --allow-off-band                 # a written decision (plan §2.1): let a slot take a candidate outside the dispatch band
+//   --allow-off-band                 # a written decision (plan §2.1): let a slot take a candidate outside its rung's dispatch band
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -27,8 +27,16 @@ const DRY = argv.includes('--dry');
 const SEEDS = flag('--seeds', 3), ARTS_PER_SLOT = flag('--arts', 8);
 const ALLOW_OFF_BAND = argv.includes('--allow-off-band');
 const CHAPTER = 8;
-const BAND = [25, 40];                                   // prototype plan H4: dispatches per level
 const MAX_USES = 3;                                      // an art appears at most this often across the set
+// Rungs: chapters 1 to 5 are the small pictures in the prototype plan's H4 band of 25 to 40 dispatches. From chapter 6 the
+// pictures grow a rung per chapter (iteration 3): each rung has its own band, measured on its arts at these targets, and its
+// own pool of arts, each usable `perChapter` times in a chapter since a rung has few pictures. The descent restarts at a
+// rung (`restart`): a bigger picture is a fresh start for the random player too, and plan §2.1's climb rule holds within it.
+const RUNGS = [
+  { from: 1, to: 40, band: [25, 40], arts: (a) => !ARTS[a].big, perChapter: 1 },
+  { from: 41, to: 48, band: [34, 64], arts: (a) => ARTS[a].big && ARTS[a].art.length === 14, perChapter: 2, restart: true, seeds: 8 },   // four pictures: more seeds each
+];
+const rungOf = (n) => RUNGS.find(r => n >= r.from && n <= r.to) || (() => { console.error(`level ${n} is in no rung`); process.exit(2); })();
 
 // The curve, one entry per level. A number is the random-win rate to aim for; `pin` keeps a hand-made level in that slot;
 // `boss` closes a chapter with a level the greedy player loses (target ≤ 0.05 uses the generator's hard-ceiling search).
@@ -41,6 +49,7 @@ const CURVE = [
   0.36, { pin: 'icecream' }, 0.28, 0.25, 0.22, 0.20, 0.18, { boss: 0.05 },
   0.18, 0.16, 0.15, { pin: 'catface' }, 0.12, 0.11, 0.10, { boss: 0.05 },
   0.10, 0.09, 0.08, 0.08, 0.07, 0.06, 0.06, { pin: 'rainbow', boss: 0.05 },
+  0.60, 0.52, 0.45, 0.38, 0.32, 0.27, 0.22, { boss: 0.05 },   // chapter 6: the 14x14 rung, descent restarted
 ];
 
 CURVE.forEach((entry, i) => {
@@ -62,7 +71,7 @@ function presetFor(target, boss) {
 const pinned = Object.fromEntries(LEVELS.filter(l => l.pinned).map(l => [l.id, l]));
 for (const e of CURVE) if (e.pin && !pinned[e.pin]) { console.error(`pinned level ${e.pin} is not in the current baked set`); process.exit(2); }
 const uses = Object.fromEntries(Object.keys(ARTS).map(a => [a, 0]));
-const chapterArts = []; CURVE.forEach((e, i) => { const c = Math.floor(i / CHAPTER); (chapterArts[c] ||= new Set()); if (e.pin) chapterArts[c].add(pinned[e.pin].artId); });
+const chapterUses = []; CURVE.forEach((e, i) => { const c = Math.floor(i / CHAPTER); (chapterUses[c] ||= {}); if (e.pin) { const a = pinned[e.pin].artId; chapterUses[c][a] = (chapterUses[c][a] || 0) + 1; } });
 for (const e of CURVE) if (e.pin) uses[pinned[e.pin].artId]++;
 
 const out = [], rows = [], unfillable = [];
@@ -70,7 +79,8 @@ const CLIMB = 0.10;                                     // plan §2.1: outside t
 let lastNonBoss = null;                                 // rating of the previous non-boss level
 const t0 = Date.now();
 CURVE.forEach((entry, i) => {
-  const n = i + 1, chapter = Math.floor(i / CHAPTER);
+  const n = i + 1, chapter = Math.floor(i / CHAPTER), rung = rungOf(n), BAND = rung.band;
+  if (rung.restart && n === rung.from) lastNonBoss = null;   // a new rung: the descent starts over
   if (entry.pin) {
     const lv = pinned[entry.pin];
     const isBoss = entry.boss !== undefined;
@@ -79,7 +89,7 @@ CURVE.forEach((entry, i) => {
     if (isBoss && lv.rating.randomWin > entry.boss + 1e-9) unfillable.push(`level ${n} (pinned ${lv.id}, rated ${lv.rating.randomWin}) is above its boss ceiling ${entry.boss}`);
     out.push({ ...lv, lanes: lv.lanes.slice(), curve: isBoss ? { target: entry.boss, boss: true } : undefined });
     const L = loadLevel(lv); const r = GEN.solve(L.cols, L.lanes.map(l => l.map(c => [c.color, c.count])), L.trayCapacity, 5e6);
-    rows.push({ n, id: lv.id, target: lv.rating.randomWin, achieved: lv.rating.randomWin, greedy: lv.rating.greedyWins, dispatches: r.solvable ? r.line.length : NaN, note: 'pinned' });
+    rows.push({ n, id: lv.id, target: lv.rating.randomWin, achieved: lv.rating.randomWin, greedy: lv.rating.greedyWins, dispatches: r.solvable ? r.line.length : NaN, band: BAND, note: 'pinned' });
     if (!isBoss) {                                     // a pinned boss (rainbow) is exempt from the descent; the others sit on the curve like any level
       if (lastNonBoss !== null && lv.rating.randomWin > lastNonBoss + CLIMB + 1e-9) unfillable.push(`level ${n} (pinned ${lv.id}, rated ${lv.rating.randomWin}) climbs more than ${CLIMB} above the previous level (${lastNonBoss}); move it in CURVE`);
       lastNonBoss = lv.rating.randomWin;
@@ -88,12 +98,12 @@ CURVE.forEach((entry, i) => {
   }
   const boss = typeof entry === 'object', target = boss ? entry.boss : entry;
   const presetName = `curve_${n}`; GEN.PRESETS[presetName] = presetFor(target, boss);
-  const candidates = Object.keys(ARTS).filter(a => !ARTS[a].big && !chapterArts[chapter].has(a) && uses[a] < MAX_USES)   // the big pictures belong to later chapters
-    .sort((a, b) => uses[a] - uses[b] || (a < b ? -1 : 1));
+  const candidates = Object.keys(ARTS).filter(a => rung.arts(a) && (chapterUses[chapter][a] || 0) < rung.perChapter && uses[a] < MAX_USES)   // the rung's own pictures
+    .sort((a, b) => uses[a] - uses[b] || (chapterUses[chapter][a] || 0) - (chapterUses[chapter][b] || 0) || (a < b ? -1 : 1));
   const pool = candidates.slice(0, ARTS_PER_SLOT);
   let best = null, nearest = null, nearestBoss = null, nearestCeil = null, nearestClimb = null, nearestLook = null;
   const ceiling = boss && GEN.PRESETS[presetName].targetIsCeiling;   // a hard boss: the plan's ≤ 5 % is binding, not the generator's ±0.10 band
-  for (const artId of pool) for (let seed = 1; seed <= SEEDS; seed++) {
+  for (const artId of pool) for (let seed = 1; seed <= (rung.seeds || SEEDS); seed++) {
     const lv = GEN.generateLevel({ art: ARTS[artId].art, artId, preset: presetName, seed });   // the game's own defaults: 64 candidates, six finalists
     const d = lv.ref.length, outside = d < BAND[0] ? BAND[0] - d : d > BAND[1] ? d - BAND[1] : 0;
     if (outside && !ALLOW_OFF_BAND) { if (!nearest || outside < nearest.outside) nearest = { artId, seed, d, achieved: lv.achieved, outside }; continue; }   // never a candidate
@@ -113,16 +123,16 @@ CURVE.forEach((entry, i) => {
     return;
   }
   const { lv, artId, seed } = best;
-  uses[artId]++; chapterArts[chapter].add(artId);
+  uses[artId]++; chapterUses[chapter][artId] = (chapterUses[chapter][artId] || 0) + 1;
   if (!boss) lastNonBoss = lv.achieved;
   // the reference line as sim cat ids (cats are numbered lane by lane, front to back), so the headless suite can replay it
   const offsets = []; let acc = 0; for (const l of lv.lanes) { offsets.push(acc); acc += l.split(' ').length; }
   const ref = lv.ref.map(k => offsets[lv.where[k][0]] + lv.where[k][1]);
   // the id carries the layout, so a later bake that changes this slot's puzzle also changes the key progress is stored under
   const id = `${artId}-${n}-${layoutHash(ARTS[artId].art, lv.lanes)}`;
-  out.push({ id, name: ARTS[artId].name, artId, lanes: lv.lanes.slice(), seed, curve: { target, boss, offBand: best.outside > 0 }, ref,
+  out.push({ id, name: ARTS[artId].name, artId, lanes: lv.lanes.slice(), seed, curve: { target, boss, offBand: best.outside > 0, band: rung === RUNGS[0] ? undefined : BAND }, ref,
              rating: { randomWin: Math.round(lv.achieved * 1000) / 1000, greedyWins: lv.greedyWins, dispatches: lv.ref.length } });
-  rows.push({ n, id, target, achieved: lv.achieved, greedy: lv.greedyWins, dispatches: lv.ref.length,
+  rows.push({ n, id, target, achieved: lv.achieved, greedy: lv.greedyWins, dispatches: lv.ref.length, band: BAND,
               note: best.outside ? `off-band by ${best.outside} (written decision: --allow-off-band)` : '' });
   process.stderr.write(`slot ${n}/${CURVE.length} ${artId} target ${target} → ${lv.achieved.toFixed(2)}${lv.greedyWins ? 'g' : 'L'}/${lv.ref.length}\n`);
 });
@@ -134,16 +144,16 @@ if (unfillable.length) {
 console.log(`\n== curve (${((Date.now() - t0) / 1000).toFixed(0)} s) ==`);
 console.log('lvl  id                 target  achieved  greedy  dispatches  note');
 for (const r of rows) console.log(`${String(r.n).padStart(3)}  ${r.id.padEnd(22)} ${r.target.toFixed(2).padStart(6)}  ${r.achieved.toFixed(2).padStart(8)}  ${(r.greedy ? 'wins' : 'LOSES').padEnd(6)}  ${String(r.dispatches).padStart(10)}  ${r.note}`);
-const inBand = rows.filter(r => r.dispatches >= BAND[0] && r.dispatches <= BAND[1]).length;
-const pinnedOut = rows.filter(r => r.note === 'pinned' && (r.dispatches < BAND[0] || r.dispatches > BAND[1])).map(r => `${r.id} ${r.dispatches}`);
-console.log(`\n${inBand}/${rows.length} levels inside the ${BAND[0]}–${BAND[1]} dispatch band (every curated level is; pinned references outside it: ${pinnedOut.join(', ') || 'none'}); art uses: ${Object.entries(uses).map(([a, u]) => `${a}:${u}`).join(' ')}`);
+const inBand = rows.filter(r => r.dispatches >= r.band[0] && r.dispatches <= r.band[1]).length;
+const pinnedOut = rows.filter(r => r.note === 'pinned' && (r.dispatches < r.band[0] || r.dispatches > r.band[1])).map(r => `${r.id} ${r.dispatches}`);
+console.log(`\n${inBand}/${rows.length} levels inside their rung's dispatch band (${RUNGS.map(r => `levels ${r.from}–${r.to}: ${r.band[0]}–${r.band[1]}`).join('; ')}; every curated level is; pinned references outside it: ${pinnedOut.join(', ') || 'none'}); art uses: ${Object.entries(uses).map(([a, u]) => `${a}:${u}`).join(' ')}`);
 
 const J = (v) => JSON.stringify(v);
 function levelText(lv) {
   const lanes = lv.lanes.map(J).join(', ');
   const rating = lv.pinned
     ? `${lv.curve ? `curve:{ target:${lv.curve.target}, boss:true }, ` : ''}rating:{ randomWin:${lv.rating.randomWin}, greedyWins:${lv.rating.greedyWins} }`
-    : `seed:${lv.seed}, curve:{ target:${lv.curve.target}${lv.curve.boss ? ', boss:true' : ''}${lv.curve.offBand ? ', offBand:true' : ''} },\n    rating:{ randomWin:${lv.rating.randomWin}, greedyWins:${lv.rating.greedyWins}, dispatches:${lv.rating.dispatches} },\n    ref:[${lv.ref.join(',')}]`;
+    : `seed:${lv.seed}, curve:{ target:${lv.curve.target}${lv.curve.boss ? ', boss:true' : ''}${lv.curve.offBand ? ', offBand:true' : ''}${lv.curve.band ? `, band:[${lv.curve.band.join(',')}]` : ''} },\n    rating:{ randomWin:${lv.rating.randomWin}, greedyWins:${lv.rating.greedyWins}, dispatches:${lv.rating.dispatches} },\n    ref:[${lv.ref.join(',')}]`;
   return `  { id:${J(lv.id)}, name:${J(lv.name)}, artId:${J(lv.artId)}, art:ARTS[${J(lv.artId)}].art, lanes:[ ${lanes} ],${lv.pinned ? ' pinned:true,' : ''}\n    ${rating} },\n`;
 }
 const block = "// ---- BAKED LEVELS: written by `node tools/curate.mjs`; do not edit by hand. Entries with pinned:true keep their hand-made\n"

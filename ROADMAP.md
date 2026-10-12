@@ -10,6 +10,8 @@ Where we stand on 2026-09-24: iteration 1 and iteration 2's three slices (forty 
 
 The prototype proved twenty good minutes for people who love you. This iteration produces day-1 and day-7 return numbers from people who do not, on a content set deep enough that returning is possible.
 
+**Done (iteration 3, pulled forward): the scale ladder, first rung.** Eight big pictures (14×14 to 24×20), the generator retuned for them, chapter 6 baked on the 14×14 rung, a faster-cats setting. Next rungs: chapters 7 (18×18) and 8 (24×20) once each has four pictures.
+
 **Done:** slice 1, content. Sixteen pictures, forty curated levels in five chapters, a curation tool that enforces the plan's rules rather than scoring them, level select paged by chapter, layout-hashed level ids.
 
 **Slice 2: daily level, share, installable.**
