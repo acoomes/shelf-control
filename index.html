@@ -936,7 +936,11 @@ const GEN = (() => {
   const candidatesFor = (blocks) => Math.max(24, Math.round(64 * Math.min(1, 150 / blocks)));
   function generateLevel({ art, artId, preset = 'easy', seed = 1, reverse = false, candidates, playouts = 100, finalists = 6, extraPlayouts = 200, trayCap = 5, retryCandidates = 32, retryBatches = 3 }) {
     const p = PRESETS[preset]; if (!p) throw new Error(`unknown preset ${preset}`);
-    if (candidates === undefined) candidates = candidatesFor(art.join('').replace(/\./g, '').length);
+    const blocks = art.join('').replace(/\./g, '').length, big = blocks > 150;
+    if (candidates === undefined) candidates = candidatesFor(blocks);
+    // a random player fails more often the more blocks it moves, so on a big picture every preset runs one lane short
+    // (never under two): measured on the 14x14 to 24x20 arts, medium then lands on its 30% target instead of near 5%
+    const genLanes = big ? Math.max(2, p.lanes - 1) : p.lanes;
     const refTrayMax = Math.min(p.refTrayMax, trayCap);   // the reference line may use at most this many boxes, so it replays at trayCap by construction
     let cols = columns(art);
     if (reverse) cols = cols.map(s => s.slice().reverse());
@@ -955,7 +959,7 @@ const GEN = (() => {
     const pool = [];
     const addCandidates = (count) => {
       for (let i = 0; i < count; i++) {
-        const g = generate(cols, rng, { lanes: p.lanes, trayCap, refTrayMax, pBig: p.pBig, bigMult: p.bigMult });
+        const g = generate(cols, rng, { lanes: genLanes, trayCap, refTrayMax, pBig: p.pBig, bigMult: p.bigMult });
         if (!replay(g.cols, g.lanes, g.ref, g.where, trayCap)) throw new Error('generated level failed replay()');
         const wins = Math.round(randomWinRate(g.cols, g.lanes, trayCap, rng, playouts) * playouts);
         const greedyWins = playout(g.cols, g.lanes, trayCap, rng, true);
