@@ -931,8 +931,12 @@ const GEN = (() => {
    * art: string[] rows. preset: key of PRESETS. Returns a level object usable by createSim, plus ratings.
    */
   // 64 candidates rather than the plan's 80: the plan's own rule for staying under 400 ms is to cut candidates before playouts
-  function generateLevel({ art, artId, preset = 'easy', seed = 1, reverse = false, candidates = 64, playouts = 100, finalists = 6, extraPlayouts = 200, trayCap = 5, retryCandidates = 32, retryBatches = 3 }) {
+  // Rating cost grows with the picture (a playout moves every block), so a big picture gets fewer candidates: 64 up to
+  // 150 blocks, scaled down to a floor of 24, which keeps a 24x20 tutorial under the budget on a slow desktop. A caller's own count wins.
+  const candidatesFor = (blocks) => Math.max(24, Math.round(64 * Math.min(1, 150 / blocks)));
+  function generateLevel({ art, artId, preset = 'easy', seed = 1, reverse = false, candidates, playouts = 100, finalists = 6, extraPlayouts = 200, trayCap = 5, retryCandidates = 32, retryBatches = 3 }) {
     const p = PRESETS[preset]; if (!p) throw new Error(`unknown preset ${preset}`);
+    if (candidates === undefined) candidates = candidatesFor(art.join('').replace(/\./g, '').length);
     const refTrayMax = Math.min(p.refTrayMax, trayCap);   // the reference line may use at most this many boxes, so it replays at trayCap by construction
     let cols = columns(art);
     if (reverse) cols = cols.map(s => s.slice().reverse());
@@ -2766,7 +2770,7 @@ const UI = (() => {
     const modeSel = document.createElement('select');
     for (const m of ['build', 'yoink']) { const o = document.createElement('option'); o.value = m; o.textContent = m; if ((spec.mode || CONFIG.mode) === m) o.selected = true; modeSel.appendChild(o); }
     box.appendChild(toggleRow('Art', artSel)); box.appendChild(toggleRow('Preset', preSel)); if (devTools) box.appendChild(toggleRow('Seed', seedIn)); box.appendChild(toggleRow('Mode', modeSel));
-    const info = el('p', 'small', 'Generates 80 candidates, rates each with 100 random playouts, keeps the one closest to the preset target.'); box.appendChild(info);
+    const info = el('p', 'small', 'Generates up to 64 candidates (fewer for a big picture), rates each with 100 random playouts, keeps the one closest to the preset target.'); box.appendChild(info);
     const row = el('div', 'row');
     if (devTools) row.appendChild(button('Random seed', 'secondary', () => { seedIn.value = String((Math.random() * 1e9) >>> 0); }));
     row.appendChild(button('Generate & play', 'good', () => {
