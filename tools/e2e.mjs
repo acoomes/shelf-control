@@ -384,8 +384,8 @@ const scenarios = {
     ok((await api.page.evaluate(() => SC.Game.levelIndex)) === 8, 'the first tile of chapter 2 starts level 9');
   },
   async staleProgress(api) {
-    // progress is keyed by level id and a curated id carries its layout: an entry left by an earlier bake is dropped at
-    // boot, a live one is kept (a second page in the same context shares the storage and boots in real time)
+    // progress is keyed by level id and a curated id carries its layout: an entry left by an earlier bake (or by the other
+    // build on this origin) is kept in storage but marks nothing done; a live one shows (a second page shares the storage)
     const live = await api.page.evaluate(() => SC.LEVELS[1].id);
     await api.page.evaluate((live) => localStorage.setItem('sc.progress', JSON.stringify({ done: { 'ghost-2': { timeSec: 50, dispatches: 27, when: 1 }, [live]: { timeSec: 61.5, dispatches: 27, when: 2 } } })), live);
     const page2 = await api.page.context().newPage();
@@ -393,7 +393,7 @@ const scenarios = {
     await page2.goto(PAGE_URL); await page2.waitForFunction(() => window.SC && document.querySelectorAll('#tiles .tile').length > 0);
     const s = await page2.evaluate(() => { const p = JSON.parse(localStorage.getItem('sc.progress')); return { keys: Object.keys(p.done), doneTiles: [...document.querySelectorAll('#tiles .tile.done .name')].map(e => e.textContent) }; });
     await page2.close();
-    ok(s.keys.length === 1 && s.keys[0] === live, `a stale id from an earlier bake is dropped at boot and the live one kept (${s.keys.join(', ')})`);
+    ok(s.keys.length === 2 && s.keys.includes('ghost-2') && s.keys.includes(live), `an id this build does not know is kept in storage (the other build on this origin may own it) and the live one too (${s.keys.join(', ')})`);
     ok(s.doneTiles.length === 1 && /^2\. /.test(s.doneTiles[0]), `the level select shows exactly that level done (${s.doneTiles.join(', ')})`);
   },
   async daily(api) {

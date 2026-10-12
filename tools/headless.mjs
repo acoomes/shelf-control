@@ -48,6 +48,27 @@ for (const bad of [
   ok(threw, `loader rejects: ${bad.name}`);
 }
 
+{ // the shelf cap must not refuse a grace save: with five cats on the loop (the head waiting, four held behind it), the one move
+  // that saves the waiter is re-dispatching a boxed cat that can place now, which frees its box; refusing it was a forced loss
+  const art = ['YYYY', 'RRRR', 'BBBB', 'RRRR'];   // bottom row R, then B, then R again behind the B row, Y on top
+  const lv = { id: 'save-test', name: 'Save', art, lanes: ['B1 B1 B1 B1 Y1 R6 Y1 Y1 Y1 R1 R1'], tray: 5 };
+  const sim = createSim(lv, { trayCapacity: 5, shelfCapacity: 5 });
+  const front = () => sim.lanes[0][0];
+  for (let i = 0; i < 5; i++) { const c = front(); const r = sim.dispatch(c.id); if (!r.ok) throw new Error('setup: ' + r.reason); sim.arrive(c.id); }   // B1 x4 and Y1 cannot place yet: five boxes
+  const waiter = front(); const w = sim.dispatch(waiter.id); const a = sim.arrive(waiter.id);
+  ok(w.ok && w.placements.length === 4 && waiter.count === 2 && a.to === 'wait' && sim.boxesUsed() === 5, `setup: the tray is full and R6 waits with ${waiter.count} blocks (${a.to})`);
+  for (let i = 0; i < 4; i++) { const c = front(); const r = sim.dispatch(c.id); if (!r.ok) throw new Error('setup follower: ' + r.reason); }   // four cats held behind the waiter: five on the loop
+  ok(sim.inFlight.length === 5, `setup: five cats on the loop (${sim.inFlight.length})`);
+  const boxedB = sim.boxes.find(c => c && c.color === 'B');
+  ok(sim.canPlaceNow(boxedB) > 0, 'the boxed B cat can place now (the bottom R row is done)');
+  const r = sim.dispatch(boxedB.id);
+  ok(r.ok && r.from === 'box', `re-dispatching the boxed cat is allowed with the shelf full (${r.ok ? 'ok' : r.reason})`);
+  const seated = sim.assignWaiting();
+  ok(seated.length === 1 && seated[0].catId === waiter.id && waiter.where === 'box', `the waiter takes the freed box (${JSON.stringify(seated)})`);
+  const r2 = sim.dispatch(front().id);
+  ok(!r2.ok && r2.reason === 'shelf_full', `a lane dispatch with the loop still full is refused as before (${r2.ok ? 'ok' : r2.reason})`);
+}
+
 /** play an evaluator move line through a real sim (turn-based: arrive right after each dispatch); returns the sim */
 function replayLineInSim(level, line, opts) {
   const sim = createSim(level, opts); const trayIds = [];

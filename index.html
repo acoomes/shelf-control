@@ -130,7 +130,7 @@ const CONFIG = {
   burstDrop: false,        // experimental; breaks difficulty, see plan §4.3
   autoFinish: true,        // the last cat with blocks left laps the shelf by itself instead of asking for the same tap again
   autoFinishSpeed: 2.5,    // path speed multiplier while it does
-  fastCatsSpeed: 1.6,      // path speed multiplier with the "Faster cats" setting on (the big pictures take 40 to 60 dispatches)
+  fastCatsSpeed: 1.6,      // path speed multiplier with the "Faster cats" setting on (a big picture takes 35 to 90 dispatches)
   assist: true, symbols: false, sound: true,
   dprCap: 2, fixedStep: 1 / 120,
 };
@@ -1151,7 +1151,10 @@ function createSim(level, opts = {}) {
     if (sim.status !== 'playing') return { ok: false, reason: 'not_playing' };
     if (!c) return { ok: false, reason: 'unknown_cat' };
     if (!sim.isTappable(c)) { sim.stats.deniedTaps++; return { ok: false, reason: 'not_tappable' }; }
-    if (sim.inFlight.length >= sim.shelfCapacity) { sim.stats.deniedTaps++; return { ok: false, reason: 'shelf_full' }; }
+    // the shelf cap paces the loop; it must not refuse the one move that saves a waiting cat (a boxed cat leaving frees its box),
+    // since the cats held behind the waiter stay in flight for as long as it waits and a full shelf would be a forced loss
+    const saving = c.where === 'box' && sim.inFlight.some(o => o.where === 'wait');
+    if (!saving && sim.inFlight.length >= sim.shelfCapacity) { sim.stats.deniedTaps++; return { ok: false, reason: 'shelf_full' }; }
     const n = sim.canPlaceNow(c);
     if (c.where === 'box' && n === 0) { sim.stats.deniedTaps++; return { ok: false, reason: 'nothing_to_place' }; }
     // remove from its lane front or its box (the box is free from this instant)
@@ -1362,6 +1365,8 @@ function mix(hexA, hexB, t) { const a = hexToRgb(hexA), b = hexToRgb(hexB); retu
 const darken = (hex, t) => mix(hex, '#000000', t);
 const lighten = (hex, t) => mix(hex, '#FFFFFF', t);
 function rgba(hex, a) { const [r, g, b] = hexToRgb(hex); return `rgba(${r},${g},${b},${a})`; }
+/** colour-blind glyph size as a share of a cell drawn `px` wide: half a cell when there is room, most of it on the 12 and 16 px cells of the big pictures */
+function glyphRatio(px) { return px <= 36 ? 0.85 : px <= 48 ? 0.65 : 0.52; }
 function roundRect(ctx, x, y, w, h, r) {
   r = Math.min(r, w / 2, h / 2);
   ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
@@ -1391,9 +1396,9 @@ const settings = Object.assign({ sound: CONFIG.sound, symbols: CONFIG.symbols, a
 const progress = Object.assign({ done: {} }, Store.get('sc.progress', {}));
 const saveSettings = () => { Store.set('sc.settings', settings); applyMotionClass(); };
 const saveProgress = () => Store.set('sc.progress', progress);
-// Progress is keyed by level id, and a curated id carries its layout, so an entry whose id is no longer in the set was
-// earned on a puzzle that has since been re-baked: drop it rather than let it mark the new puzzle done.
-{ const live = new Set(LEVELS.map(lv => lv.id)); let stale = false; for (const k of Object.keys(progress.done)) if (!live.has(k)) { delete progress.done[k]; stale = true; } if (stale) saveProgress(); }
+// Progress is keyed by level id, and a curated id carries its layout, so an entry from a re-baked puzzle can never mark the new
+// one done; it is kept rather than pruned, because the live and test builds share this origin's storage and an id this build
+// does not know may be a level the other one has (chapter 6 on /test/ before it ships).
 const daily = Object.assign({ attempts: {}, wins: {}, streak: 0, best: 0, lastWon: 0 }, Store.get('sc.daily', {}));
 const saveDaily = () => Store.set('sc.daily', daily);
 { // sixty days of attempts and results are kept; the streak fields carry the rest
@@ -1408,7 +1413,7 @@ const sessions = Object.assign({ count: 0, standalone: 0, a2hsDismissed: false, 
 sessions.count++; if (standalone) sessions.standalone++; Store.set('sc.sessions', sessions);
 
 // ------------------------------ TELEMETRY (plan §2.3) ------------------------------
-// Five events to PostHog over plain HTTP: no SDK on the page, no cookies, an anonymous device id in local storage, one project
+// Six events to PostHog over plain HTTP: no SDK on the page, no cookies, an anonymous device id in local storage, one project
 // with a `channel` property telling live from test. Events queue in storage and flush with keepalive fetches, so a session
 // played offline (the installed app) reports when the device is next online. Off from a file:// open, off via the settings
 // toggle, and the transport is replaceable so the browser suite can read what would have been sent. The key is a public
@@ -1598,7 +1603,10 @@ function computeLayout(sim) {
   const cell = Math.max(12, Math.min(30, Math.floor((326 - (W - 1) * gap) / W), Math.floor((316 - (H - 1) * gap) / H)));
   const pitch = cell + gap;
   const boardW = W * cell + (W - 1) * gap, boardH = H * cell + (H - 1) * gap;
-  const wellPad = 10, wellY = 196, wellH = 336, wellW = boardW + wellPad * 2, wellX = DW / 2 - wellW / 2;
+  // the well follows the picture's height (never under 296, so the frame stays near the plank on a short picture, never over
+  // the 336 of a full-height board) with its floor fixed at 532, so the tray and the slide keep their spacing: a wide picture
+  // at the 12 px cell floor gets a shorter frame rather than a dark band of headroom
+  const wellPad = 10, wellFloor = 532, wellH = Math.max(296, boardH + wellPad * 2), wellY = wellFloor - wellH, wellW = boardW + wellPad * 2, wellX = DW / 2 - wellW / 2;
   const bx = DW / 2 - boardW / 2, by = wellY + wellH - wellPad - boardH;   // bottom-aligned: blocks stack from the floor
   const shelfY = 176;                                                        // surface the cats walk on
   const treeX = 19, treeBaseY = 628;                                         // cat tree hugs the left edge
@@ -1661,7 +1669,7 @@ const Sprites = (() => {
     g.fillStyle = 'rgba(0,0,0,0.14)'; g.fillRect(0, sizePx * 0.78, sizePx, sizePx * 0.22);
     g.fillStyle = 'rgba(255,255,255,0.55)'; g.beginPath(); g.arc(sizePx * 0.27, sizePx * 0.27, sizePx * 0.075, 0, Math.PI * 2); g.fill();
     if (symbols) {
-      g.font = `700 ${Math.round(sizePx * 0.52)}px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.font = `700 ${Math.round(sizePx * glyphRatio(sizePx))}px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
       g.fillStyle = 'rgba(255,255,255,0.45)'; g.fillText(SYMBOLS[color], sizePx / 2, sizePx / 2 + sizePx * 0.06 + 1);
       g.fillStyle = 'rgba(51,40,79,0.45)'; g.fillText(SYMBOLS[color], sizePx / 2, sizePx / 2 + sizePx * 0.06);
     }
@@ -1676,7 +1684,7 @@ const Sprites = (() => {
     const g = c.getContext('2d'); const hex = PALETTE[color].hex, r = sizePx * 0.22, k = sizePx / cellPx;
     roundRect(g, 0, 0, sizePx, sizePx, r); g.fillStyle = rgba(hex, 0.20); g.fill();
     if (kind === 'frontier') { const lw = 1.5 * k; roundRect(g, lw / 2, lw / 2, sizePx - lw, sizePx - lw, r); g.strokeStyle = rgba(hex, 0.70); g.lineWidth = lw; g.stroke(); }
-    if (symbols) { g.fillStyle = rgba(hex, 0.4); g.font = `700 ${Math.round(sizePx * 0.5)}px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(SYMBOLS[color], sizePx / 2, sizePx / 2 + sizePx * 0.05); }
+    if (symbols) { g.fillStyle = rgba(hex, 0.4); g.font = `700 ${Math.round(sizePx * glyphRatio(sizePx))}px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(SYMBOLS[color], sizePx / 2, sizePx / 2 + sizePx * 0.05); }
     cache.set(key, c); return c;
   }
   /** soft radial glow sprite (replaces shadowBlur, which is very expensive on software rasterisers) */
@@ -1790,7 +1798,8 @@ function drawCat(ctx, o) {
   if (o.badge != null) {
     const pop = o.badgePop ? 1 + 0.3 * Math.sin(clamp(o.badgePop, 0, 1) * Math.PI) : 1;
     const txt = String(o.badge), w = 12 + 7.5 * txt.length, h = 16;
-    ctx.save(); ctx.translate(hx, hy - 31); ctx.scale(pop, pop);
+    const k = Math.max(1, 0.8 / (s * (o.squashX || 1)));   // the badge is drawn inside the cat's scale: keep it at least 80% of its size on a small cat
+    ctx.save(); ctx.translate(hx, hy - 31); ctx.scale(pop * k, pop * k);
     roundRect(ctx, -w / 2, -h / 2, w, h, 8); ctx.fillStyle = '#FFFFFF'; ctx.fill(); ctx.strokeStyle = rgba(T.ink, 0.15); ctx.lineWidth = 1; ctx.stroke();
     ctx.fillStyle = txt === '✓' ? PALETTE.G.hex : T.ink; ctx.font = `700 12px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(o.symbol ? `${SYMBOLS[o.color]}${txt}` : txt, 0, 0.5);
@@ -1965,7 +1974,7 @@ function startLevel(def, opts = {}) {
   G.sim = createSim(def, { mode: G.mode, trayCapacity: CONFIG.trayCapacity, shelfCapacity: CONFIG.shelfCapacity });
   G.L = computeLayout(G.sim);
   G.actors = G.sim.cats.map(makeActor);
-  G.flight = []; G.blocks = []; G.settle = []; G.particles = []; G.texts = []; G.sweeps = []; G.boxFx = [];
+  G.flight = []; G.blocks = []; G.settle = []; G.particles = []; G.texts = []; G.sweeps = []; G.boxFx = []; G.levelSeq = (G.levelSeq || 0) + 1;
   G.present = G.sim.cols.map(s => s.map(() => G.mode === 'yoink'));
   G.rowDone = new Array(G.sim.H).fill(false);
   G.time = 0; G.playTime = 0; G.queue = []; G.lastDispatchAt = -10; G.combo = { step: -1, last: -10 };
@@ -1992,7 +2001,11 @@ function resolveTarget(t) {
 }
 function drainQueue() {
   const G = Game;
-  while (G.queue.length && G.state === 'playing' && G.time - G.lastDispatchAt >= CONFIG.minDispatchGap) fireTap(G.queue.shift());
+  while (G.queue.length && G.state === 'playing') {
+    const save = G.queue[0].kind === 'box' && G.sim.inFlight.some(o => o.where === 'wait');   // a grace save must not be lost to the gap and then to the fail
+    if (!save && G.time - G.lastDispatchAt < CONFIG.minDispatchGap) break;
+    fireTap(G.queue.shift());
+  }
 }
 function fireTap(target) {
   const G = Game, sim = G.sim; const a = resolveTarget(target); if (!a) return;
@@ -2045,7 +2058,7 @@ function denyFeedback(a, reason) {
 }
 function wiggleLaneFront(lane) {
   const cat = Game.sim.lanes[lane] && Game.sim.lanes[lane][0]; if (!cat) return;
-  actorOf(cat.id).wiggle = 1; Game.extraDenied++;
+  actorOf(cat.id).wiggle = 1;   // a nudge toward the front cat, not one of the plan's soft denies
 }
 
 // ---------- arrivals, boxes, grace ----------
@@ -2162,7 +2175,7 @@ function update(dt) {
       if (u >= 1) { a.state = 'path'; a.pathS = 0; a.x = a.to.x; a.y = a.to.y; a.dir = 1; a.walkT = 0; }
     } else if (a.state === 'path') {
       let maxS = Infinity;
-      if (prev && (prev.state === 'path' || prev.state === 'wait')) maxS = prev.pathS - L.gapPx;
+      if (prev && (prev.state === 'path' || prev.state === 'wait') && prev.pathS >= a.pathS) maxS = prev.pathS - L.gapPx;   // a finisher that looped round is behind, not ahead
       const mul = (a.fast ? CONFIG.autoFinishSpeed : 1) * (settings.fastCats ? CONFIG.fastCatsSpeed : 1);   // faster cats: a setting for the big pictures
       const v = L.segSpeed(a.pathS) * mul; let ns = Math.min(a.pathS + v * dt, maxS); if (ns < a.pathS) ns = a.pathS;
       a.moving = ns > a.pathS + 1e-9; a.pathS = ns;
@@ -2345,7 +2358,7 @@ function drawBoard(ctx, mode = 'all') {
       }
       if (st === 'reserved') {
         roundRect(ctx, x, y, cell, cell, cell * 0.22); ctx.fillStyle = rgba(hex, pulse); ctx.fill();
-        if (sym) { ctx.fillStyle = rgba(hex, 0.6); ctx.font = `700 ${Math.round(cell * 0.5)}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(SYMBOLS[color], x + cell / 2, y + cell / 2 + cell * 0.05); }
+        if (sym) { ctx.fillStyle = rgba(hex, 0.6); ctx.font = `700 ${Math.round(cell * glyphRatio(cell * view.S))}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(SYMBOLS[color], x + cell / 2, y + cell / 2 + cell * 0.05); }
       } else ctx.drawImage(Sprites.ghost(color, spx, st, sym, cell), x, y, cell, cell);
     }
   }
@@ -2490,7 +2503,7 @@ function render() {
     else {
       // the static cells are a function of the logical state only: re-rasterised on dispatch / landing / settings changes
       let present = 0; for (const col of G.present) for (const v of col) if (v) present++;
-      const key = `${sim.ptr.join(',')}|${present}|${settings.symbols ? 1 : 0}|${G.mode}|${L.cell}|${view.S}`;
+      const key = `${G.levelSeq}|${sim.ptr.join(',')}|${present}|${settings.symbols ? 1 : 0}|${G.mode}|${L.cell}|${view.S}`;   // levelSeq: a fresh level has the same pointers as the last fresh level
       ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(Layers.ensureBoard(view, key, (g) => drawBoard(g, 'static')), 0, 0);
       ctx.setTransform(view.S, 0, 0, view.S, view.ox, view.oy);
       drawBoard(ctx, 'live');
@@ -2530,7 +2543,7 @@ function hitTest(x, y) {
   for (let i = 0; i < sim.boxes.length; i++) if (x >= tr.x(i) - 4 && x <= tr.x(i) + tr.w + 4 && y >= tr.y - 34 && y <= tr.y + tr.h + 8) return { kind: 'box', slot: i };
   for (let i = 0; i < L.laneN; i++) {
     const lx = L.laneX(i);
-    if (Math.abs(x - lx) <= 50) {
+    if (Math.abs(x - lx) <= Math.min(50, L.laneSpacing / 2)) {   // zones never overlap: with four lanes the nearer one wins
       if (y >= L.laneRows[0].y - 52 && y <= L.laneRows[0].y + 34) return { kind: 'lane', lane: i };
       if (y > L.laneRows[0].y + 34 && y <= DH) return { kind: 'lanedeep', lane: i };
     }
@@ -2550,6 +2563,7 @@ function setupInput() {
   const c = view.canvas;
   c.addEventListener('pointerdown', (e) => {
     Audio.init();
+    if (e.isPrimary === false || (e.pointerType === 'mouse' && e.button !== 0)) { e.preventDefault(); return; }   // a second finger or a right click is not a tap
     const x = (e.clientX * view.dpr - view.ox) / view.S, y = (e.clientY * view.dpr - view.oy) / view.S;
     onTapDesign(x, y);
     e.preventDefault();
@@ -2630,7 +2644,7 @@ const UI = (() => {
       b.appendChild(artThumb(a.art, true, 104, 84));
       b.appendChild(el('div', 'name', a.name));
       b.appendChild(el('div', 'meta', `big picture · ${a.art[0].length}×${a.art.length} · preview`));
-      b.addEventListener('click', () => { Audio.init(); showGen({ artId: aid, preset: 'medium', seed: (Math.random() * 1e9) >>> 0 }); });
+      b.addEventListener('click', () => { Audio.init(); showGen({ artId: aid, preset: 'medium', mode: 'build', seed: (Math.random() * 1e9) >>> 0 }); });
       tiles.appendChild(b);
     }
   }
@@ -2701,6 +2715,7 @@ const UI = (() => {
     if (installPrompt) a2hs.appendChild(button('Install', 'good', async () => { const p = installPrompt; installPrompt = null; try { p.prompt(); await p.userChoice; } catch (e) { /* declined */ } buildA2hs(); }));
     const x = button('✕', 'secondary', () => { sessions.a2hsDismissed = true; Store.set('sc.sessions', sessions); buildA2hs(); }); x.setAttribute('aria-label', 'Dismiss'); a2hs.appendChild(x);
   }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && !Game.sim && !select.classList.contains('hidden')) buildDaily(); });   // a new day while the select screen was open
   function showSelect() {
     Game.sim = null; Game.state = 'idle';
     if (Game.levelIndex >= 0) { currentChapter = chapterOf(Game.levelIndex); Store.set('sc.chapter', currentChapter); }   // come back to the chapter you were in
@@ -2820,7 +2835,13 @@ const UI = (() => {
     box.appendChild(toggleRow('Anonymous play stats', checkbox(settings.telemetry !== false, v => { settings.telemetry = v; saveSettings(); if (!v) Telemetry.clear(); })));
     const row = el('div', 'row');
     if (devTools) row.appendChild(button('🐞 Debug', 'secondary', () => { closeModal(); toggleDebug(true); }));
-    row.appendChild(button('Reset progress', 'secondary', () => { progress.done = {}; settings.seenTips = {}; Object.assign(daily, { attempts: {}, wins: {}, streak: 0, best: 0, lastWon: 0 }); Store.clear(); saveSettings(); saveProgress(); saveDaily(); Game.telemetry = []; currentChapter = null; closeModal(); if (!Game.sim) { buildDaily(); buildTiles(); } }));
+    const reset = button('Reset progress', 'secondary', () => {
+      if (!reset.armed) { reset.armed = true; reset.textContent = 'Tap again to reset levels and the daily'; return; }   // one tap arms, the second resets
+      progress.done = {}; settings.seenTips = {}; Object.assign(daily, { attempts: {}, wins: {}, streak: 0, best: 0, lastWon: 0 });
+      Store.remove('sc.chapter'); saveSettings(); saveProgress(); saveDaily();   // the device id, session counters and queued events stay: a reset is not a new player
+      Game.telemetry = []; currentChapter = null; closeModal(); if (!Game.sim) { buildDaily(); buildTiles(); }
+    });
+    row.appendChild(reset);
     row.appendChild(button('Done', null, closeModal));
     box.appendChild(row);
     if (!Store.available) box.appendChild(el('p', 'small', 'Storage is blocked here: settings and progress last for this visit only.'));
@@ -2935,7 +2956,7 @@ const UI = (() => {
       + ` · posthog ${Telemetry.enabled ? `sent ${Telemetry.sent} · pending ${Telemetry.pending()}${Telemetry.lastStatus != null ? ' · http ' + Telemetry.lastStatus : ''}${Telemetry.lastError ? ' · ' + Telemetry.lastError : ''}` : 'off here'}`;
   }
   $('#btn-restart').addEventListener('click', () => { Audio.init(); restart(); });
-  $('#btn-settings').addEventListener('click', () => { Audio.init(); if (modalOpen() && !levelOver()) closeModal(); else showSettings(); });
+  $('#btn-settings').addEventListener('click', () => { Audio.init(); if (Game.state === 'winning' || Game.state === 'failing') return; if (modalOpen() && !levelOver()) closeModal(); else showSettings(); });   // the card is about to open
   $('#btn-settings2').addEventListener('click', () => { Audio.init(); showSettings(); });
   modal.addEventListener('pointerdown', (e) => { if (e.target === modal && Game.sim && Game.state === 'playing') closeModal(); });
   return { showSelect, play, playGenerated, playDaily, restart, onLevelStart, showCard, showSettings, showGen, tutorialEvent, toggleDebug, updateDebug, closeModal, modalOpen, artThumb, shareOrCopy };
