@@ -1410,7 +1410,7 @@ const saveDaily = (replace = false) => {
 { // sixty days of attempts and results are kept; the streak fields carry the rest
   const cutoff = DAILY.key(Date.now() - 60 * 86400000); let stale = false;
   for (const bag of [daily.attempts, daily.wins]) for (const k of Object.keys(bag)) if (k < cutoff) { delete bag[k]; stale = true; }
-  if (stale) saveDaily();
+  if (stale) saveDaily(true);   // a replacing write: the copy just read from storage is complete, and a merging save would bring the old days back
 }
 /** Launched from the home screen rather than a browser tab: the manifest's start_url carries ?standalone=1 so the launch is
  *  attributable even where the display-mode media query is unreliable (plan §2.4). */
