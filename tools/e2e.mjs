@@ -395,6 +395,12 @@ const scenarios = {
     await page2.close();
     ok(s.keys.length === 2 && s.keys.includes('ghost-2') && s.keys.includes(live), `an id this build does not know is kept in storage (the other build on this origin may own it) and the live one too (${s.keys.join(', ')})`);
     ok(s.doneTiles.length === 1 && /^2\. /.test(s.doneTiles[0]), `the level select shows exactly that level done (${s.doneTiles.join(', ')})`);
+    // the first tab booted with empty progress; its next save must not drop what the second tab (or the other build) stored since
+    const merged = await api.page.evaluate(() => { SC.saveProgress(); return Object.keys(JSON.parse(localStorage.getItem('sc.progress')).done); });
+    ok(merged.length === 2 && merged.includes('ghost-2') && merged.includes(live), `a stale tab's save merges storage under its own entries instead of replacing it (${merged.join(', ')})`);
+    // and a storage event from the other tab brings its progress into this one
+    const synced = await api.page.evaluate(() => { window.dispatchEvent(new StorageEvent('storage', { key: 'sc.progress', newValue: localStorage.getItem('sc.progress') })); return Object.keys(SC.progress.done); });
+    ok(synced.length === 2, `a storage event syncs progress into the open tab (${synced.join(', ')})`);
   },
   async daily(api) {
     // one generated level per UTC date (plan §2.2): the tile names the day, the level is DAILY.def's, a win keeps a streak, share text carries the emoji picture

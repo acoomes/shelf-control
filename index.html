@@ -1395,12 +1395,18 @@ const Store = (() => {
 const settings = Object.assign({ sound: CONFIG.sound, symbols: CONFIG.symbols, assist: CONFIG.assist, autoFinish: CONFIG.autoFinish, fastCats: false, motion: 'auto', telemetry: true, seenTips: {} }, Store.get('sc.settings', {}));
 const progress = Object.assign({ done: {} }, Store.get('sc.progress', {}));
 const saveSettings = () => { Store.set('sc.settings', settings); applyMotionClass(); };
-const saveProgress = () => Store.set('sc.progress', progress);
+// Saves merge what is in storage under this tab's own entries: the live and test builds and any number of tabs share this
+// origin's storage, and a tab writing its boot-time copy wholesale would drop a level earned elsewhere since. A reset is the
+// one write that replaces.
+const saveProgress = (replace = false) => { if (!replace) progress.done = Object.assign({}, (Store.get('sc.progress', {}) || {}).done || {}, progress.done); Store.set('sc.progress', progress); };
 // Progress is keyed by level id, and a curated id carries its layout, so an entry from a re-baked puzzle can never mark the new
 // one done; it is kept rather than pruned, because the live and test builds share this origin's storage and an id this build
 // does not know may be a level the other one has (chapter 6 on /test/ before it ships).
 const daily = Object.assign({ attempts: {}, wins: {}, streak: 0, best: 0, lastWon: 0 }, Store.get('sc.daily', {}));
-const saveDaily = () => Store.set('sc.daily', daily);
+const saveDaily = (replace = false) => {
+  if (!replace) { const s = Store.get('sc.daily', {}) || {}; daily.wins = Object.assign({}, s.wins || {}, daily.wins); daily.attempts = Object.assign({}, s.attempts || {}, daily.attempts); }
+  Store.set('sc.daily', daily);
+};
 { // sixty days of attempts and results are kept; the streak fields carry the rest
   const cutoff = DAILY.key(Date.now() - 60 * 86400000); let stale = false;
   for (const bag of [daily.attempts, daily.wins]) for (const k of Object.keys(bag)) if (k < cutoff) { delete bag[k]; stale = true; }
@@ -1487,11 +1493,14 @@ const Telemetry = (() => {
   try {
     window.addEventListener('online', () => T.flush());
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') T.flush(); });
-    // Settings are one per origin too: a change saved by another tab (the opt-out above all) becomes this tab's settings.
+    // Settings, progress and the daily are one per origin too: a change saved by another tab (the opt-out above all, a level
+    // won in the other build, a reset) becomes this tab's state, and an open level select redraws.
     window.addEventListener('storage', (e) => {
-      if (e.key !== null && e.key !== 'sc.settings') return;
-      Object.assign(settings, Store.get('sc.settings', {})); applyMotionClass();
-      if (settings.telemetry === false) T.clear();
+      const all = e.key === null;
+      if (all || e.key === 'sc.settings') { Object.assign(settings, Store.get('sc.settings', {})); applyMotionClass(); if (settings.telemetry === false) T.clear(); }
+      if (all || e.key === 'sc.progress') progress.done = (Store.get('sc.progress', {}) || {}).done || {};
+      if (all || e.key === 'sc.daily') Object.assign(daily, { attempts: {}, wins: {}, streak: 0, best: 0, lastWon: 0 }, Store.get('sc.daily', {}) || {});
+      if ((all || e.key === 'sc.progress' || e.key === 'sc.daily') && typeof UI !== 'undefined' && !Game.sim && !UI.modalOpen()) UI.showSelect();   // an open level select redraws
     });
   } catch (e) { /* no window */ }
   return T;
@@ -2680,7 +2689,7 @@ const UI = (() => {
     if (won.layout === todaysDaily().daily.layout) return false;
     delete daily.wins[k]; delete daily.attempts[k];
     if (daily.lastWon === n) { if (daily.streak > 1) { daily.streak--; daily.lastWon = n - 1; } else { daily.streak = 0; daily.lastWon = 0; } }
-    saveDaily(); return true;
+    saveDaily(true); return true;   // a deliberate drop: a merging save would bring the entry back from storage
   }
   function playDaily() { Game.levelIndex = -1; startLevel(todaysDaily()); }
   function dailyShareText(k) { const won = daily.wins[k], n = DAILY.number(Date.parse(k + 'T00:00:00Z')); return DAILY.shareText({ n, timeSec: won.timeSec, boxes: won.boxes, attempts: won.attempts, art: ARTS[DAILY.artFor(n)].art }); }
@@ -2838,7 +2847,7 @@ const UI = (() => {
     const reset = button('Reset progress', 'secondary', () => {
       if (!reset.armed) { reset.armed = true; reset.textContent = 'Tap again to reset levels and the daily'; return; }   // one tap arms, the second resets
       progress.done = {}; settings.seenTips = {}; Object.assign(daily, { attempts: {}, wins: {}, streak: 0, best: 0, lastWon: 0 });
-      Store.remove('sc.chapter'); saveSettings(); saveProgress(); saveDaily();   // the device id, session counters and queued events stay: a reset is not a new player
+      Store.remove('sc.chapter'); saveSettings(); saveProgress(true); saveDaily(true);   // the device id, session counters and queued events stay: a reset is not a new player
       Game.telemetry = []; currentChapter = null; closeModal(); if (!Game.sim) { buildDaily(); buildTiles(); }
     });
     row.appendChild(reset);
@@ -3032,7 +3041,7 @@ function boot() {
   // plan §2.3: a session, and an install once, inferred on the first home-screen launch where the browser gives no event (iOS)
   Telemetry.record('session_start', { referrer: (() => { try { return document.referrer ? new URL(document.referrer).host : ''; } catch (e) { return ''; } })() });
   if (standalone && !sessions.installReported) { sessions.installReported = true; Store.set('sc.sessions', sessions); Telemetry.record('install', { inferred: true }); }
-  window.SC = { Game, CONFIG, LEVELS, GEN, createSim, startLevel, UI, tap: enqueueTap, hitTest, settings, Audio, view, useContinue, telemetry: () => Game.telemetry, BUILD, devTools, ARTS, DAILY, daily, sessions, standalone, drawIcon, Telemetry };
+  window.SC = { Game, CONFIG, LEVELS, GEN, createSim, startLevel, UI, tap: enqueueTap, hitTest, settings, Audio, view, useContinue, telemetry: () => Game.telemetry, BUILD, devTools, ARTS, DAILY, daily, sessions, standalone, drawIcon, Telemetry, progress, saveProgress };
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();
