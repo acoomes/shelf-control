@@ -15,6 +15,12 @@ Two builds from one file: **live** at `https://andrewcoomes.com/shelf-control/` 
 
 The rest of slice 3 is people work: the stranger playtest itself, and H1 and H3 answered in writing.
 
+## Iteration 3 · scale ladder (in progress)
+
+**Status:** on `dev`. [PR #18](https://github.com/acoomes/shelf-control/pull/18) on 2026-09-30 (`e60934e`), preview tiles in the PR after it.
+
+- **Bigger pictures, first rung.** Balloon and Rocket at 14×14 (196 blocks, cells 21 px at phone width), marked `big` so they sit out of the daily rotation and of any re-bake of chapters 1 to 5. Each has a preview tile beside *Generated* on every chapter page that opens the chooser on that picture at medium, so the feel of a 14×14 level is one tap from the level select before chapters 6 to 8 exist. `tools/art-preview.mjs` renders a generated level on any art for a look before it is baked.
+
 ---
 
 ## Iteration 2 · slice 2 — The daily, the share and the home screen

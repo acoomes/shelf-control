@@ -2473,6 +2473,15 @@ const UI = (() => {
     g.appendChild(el('div', 'meta', devTools ? 'any art · any preset · seeded' : 'any art · any preset'));
     g.addEventListener('click', () => { Audio.init(); showGen(); });
     tiles.appendChild(g);
+    // the big pictures (14x14 and up) have no chapter yet: a preview tile each opens the chooser on that art at medium
+    for (const [aid, a] of Object.entries(ARTS)) if (a.big) {
+      const b = el('button', 'tile gen big'); b.type = 'button';
+      b.appendChild(artThumb(a.art, true, 104, 84));
+      b.appendChild(el('div', 'name', a.name));
+      b.appendChild(el('div', 'meta', `big picture · ${a.art[0].length}×${a.art.length} · preview`));
+      b.addEventListener('click', () => { Audio.init(); showGen({ artId: aid, preset: 'medium', seed: (Math.random() * 1e9) >>> 0 }); });
+      tiles.appendChild(b);
+    }
   }
   // ---- daily level (plan §2.2): one generated level per UTC date, a streak, share text ----
   const dailyBox = $('#daily'), a2hs = $('#a2hs');
