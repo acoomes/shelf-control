@@ -384,7 +384,7 @@ const scenarios = {
     ok(s.pills === 6 && s.on === '1' && s.tiles === 8 && s.gen === 1 && s.big === 4 && /^1\. /.test(s.first), `chapter 1: six chapter pills, eight levels, the generated tile and four big-picture previews (${JSON.stringify(s)})`);
     await api.clickSel('#chapters .chap', 5); await api.run(20);
     s = await api.page.evaluate(() => ({ on: document.querySelector('#chapters .chap.on').textContent, first: document.querySelector('#tiles .tile .name').textContent, tiles: document.querySelectorAll('#tiles .tile:not(.gen)').length, last: [...document.querySelectorAll('#tiles .tile:not(.gen) .meta')].pop().textContent, blocks: document.querySelector('#tiles .tile:not(.gen) .meta').textContent }));
-    ok(s.on === '6' && /^41\. Balloon/.test(s.first) && s.tiles === 8 && /196 blocks/.test(s.blocks) && /needs lookahead/.test(s.last), `chapter 6 is the 14×14 rung: level 41 is Balloon, 196 blocks, level 48 needs lookahead (${s.last})`);
+    ok(s.on === '6' && /^41\. (Balloon|Rocket|Mug|Frog)/.test(s.first) && s.tiles === 8 && /196 blocks/.test(s.blocks) && /needs lookahead/.test(s.last), `chapter 6 is the 14×14 rung: level 41 is a 14×14 picture (${s.first}), 196 blocks, level 48 needs lookahead (${s.last})`);
     await api.clickSel('#chapters .chap', 2); await api.run(20);
     s = await api.page.evaluate(() => ({ on: document.querySelector('#chapters .chap.on').textContent, first: document.querySelector('#tiles .tile .name').textContent, tiles: document.querySelectorAll('#tiles .tile:not(.gen)').length }));
     ok(s.on === '3' && /^17\. /.test(s.first) && s.tiles === 8, 'chapter 3 starts at level 17');

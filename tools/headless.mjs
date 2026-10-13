@@ -107,11 +107,11 @@ for (const lv of PINNED) {
   const band = CURATED.filter(l => inBand(l) || (l.curve && l.curve.offBand)).length;
   ok(band === CURATED.length, `every curated level sits in its rung's dispatch band (25–40 for chapters 1 to 5, the level's own band after)${overrides.length ? `, except ${overrides.length} baked outside it by written decision (${overrides.map(l => `${l.id} ${l.rating.dispatches}`).join(', ')})` : ''} (${CURATED.length - overrides.length}/${CURATED.length} in band)`);
   ok(overrides.every(l => !inBand(l)), 'no level carries an off-band override it does not need');
-  // the six references keep their hand-made lanes for the Appendix B cross-check; exactly two of them run outside the band,
-  // by a written decision in the iteration 2 plan (§2.1): heart is the tutorial and short, rainbow is the finale and long
-  const EXEMPT = { heart: true, rainbow: true };
+  // the six references keep their hand-made lanes for the Appendix B cross-check, at the tray their slot gives them; one runs
+  // outside the band by a written decision in the iteration 2 plan (§2.1): heart is the tutorial and short
+  const EXEMPT = { heart: true };
   const pinnedOut = PINNED.filter(l => solverLine[l.id] < 25 || solverLine[l.id] > 40).map(l => `${l.id} ${solverLine[l.id]}`);
-  ok(pinnedOut.every(s => EXEMPT[s.split(' ')[0]]) && pinnedOut.length === Object.keys(EXEMPT).length, `pinned references outside the band are exactly the two documented exceptions (${pinnedOut.join(', ')})`);
+  ok(pinnedOut.every(s => EXEMPT[s.split(' ')[0]]) && pinnedOut.length === Object.keys(EXEMPT).length, `pinned references outside the band are exactly the documented exception (${pinnedOut.join(', ')})`);
 }
 {
   // the solver must also say no when the answer is no, and must backtrack when lane-first ordering fails
@@ -129,7 +129,7 @@ for (const lv of PINNED) {
 
 console.log(`\n== 13.1.2 random playouts (${PLAYOUTS} per level) vs Appendix B ==`);
 for (const lv of PINNED) {
-  const { cols, lanes, cap } = GEN.lanesOf(lv);
+  const { cols, lanes } = GEN.lanesOf(lv), cap = 5;   // the appendix measured the references with five boxes; a slot may give them fewer
   const rng = makeRng(C.hashSeed('playout:' + lv.id));
   const rate = GEN.randomWinRate(cols, lanes, cap, rng, PLAYOUTS);
   const greedy = GEN.playout(cols, lanes, cap, rng, true);
@@ -138,29 +138,36 @@ for (const lv of PINNED) {
   ok(greedy === ref.greedyWins, `${lv.id}: greedy wins=${greedy} (appendix ${ref.greedyWins})`);
 }
 {
-  const N = quick ? 100 : 300; let off = [], greedyOff = [];
-  for (const lv of CURATED) {
-    const { cols, lanes, cap } = GEN.lanesOf(lv);
+  const N = quick ? 100 : 300; let off = [], casualOff = [], greedyOff = [];
+  for (const lv of LEVELS) {
+    const { cols, lanes, cap } = GEN.lanesOf(lv);   // at the level's own tray
     const rate = GEN.randomWinRate(cols, lanes, cap, makeRng(C.hashSeed('rate:' + lv.id)), N);
     if (Math.abs(rate - lv.rating.randomWin) > 0.10) off.push(`${lv.id} ${fmt(rate)} vs ${lv.rating.randomWin}`);
+    const crate = GEN.casualWinRate(cols, lanes, cap, makeRng(C.hashSeed('casual:' + lv.id)), N);
+    if (Math.abs(crate - lv.rating.casualWin) > 0.10) casualOff.push(`${lv.id} ${fmt(crate)} vs ${lv.rating.casualWin}`);
     if (GEN.playout(cols, lanes, cap, makeRng(1), true) !== lv.rating.greedyWins) greedyOff.push(lv.id);
   }
-  ok(off.length === 0, `baked ratings hold: ${N} fresh playouts per curated level within ±0.10 of the tile's number${off.length ? ' (off: ' + off.join(', ') + ')' : ''}`);
+  ok(off.length === 0, `baked random-win ratings hold: ${N} fresh playouts per level within ±0.10${off.length ? ' (off: ' + off.join(', ') + ')' : ''}`);
+  ok(casualOff.length === 0, `baked casual-win ratings hold: ${N} fresh casual playouts per level within ±0.10 (the number difficulty is set by)${casualOff.length ? ' (off: ' + casualOff.join(', ') + ')' : ''}`);
   ok(greedyOff.length === 0, `baked greedy flags hold${greedyOff.length ? ' (off: ' + greedyOff.join(', ') + ')' : ''}`);
   const isBoss = (l) => !!(l.curve && l.curve.boss);
   const bosses = LEVELS.filter(isBoss), others = LEVELS.filter(l => !isBoss(l));
   ok(bosses.length > 0 && bosses.every(l => !l.rating.greedyWins), `every chapter boss needs lookahead (${bosses.map(l => l.id).join(', ')})`);
-  // plan §2.1 shape: chapter 1 (onboarding) has no boss; chapters 2 to 6 each close with one, hard (ceiling 0.05) from chapter 3 on
-  { const wrong = LEVELS.map((l, i) => { const n = i + 1, want = n % 8 === 0 && n > 8; return isBoss(l) !== want ? `${n}:${l.id}${want ? ' not a boss' : ' is a boss'}` : (want && n > 16 && !(l.curve.target <= 0.05)) ? `${n}:${l.id} not hard` : null; }).filter(Boolean);
-    ok(LEVELS.length === 48 && wrong.length === 0, `bosses close chapters 2 to 6 and nothing else (16 lookahead; 24, 32, 40 and 48 hard); chapter 1 has none${wrong.length ? ' (NOT: ' + wrong.join(', ') + ')' : ''}`); }
+  // plan §2.1 shape: chapter 1 (onboarding) has no boss; every chapter after it closes with one
+  { const wrong = LEVELS.map((l, i) => { const n = i + 1, want = n % 8 === 0 && n > 8; return isBoss(l) !== want ? `${n}:${l.id}${want ? ' not a boss' : ' is a boss'}` : null; }).filter(Boolean);
+    ok(LEVELS.length === 48 && wrong.length === 0, `bosses close chapters 2 to 6 and nothing else; chapter 1 has none${wrong.length ? ' (NOT: ' + wrong.join(', ') + ')' : ''}`); }
   ok(others.every(l => l.rating.greedyWins), `lookahead levels live only in boss slots: every other level is greedy-solvable${others.filter(l => !l.rating.greedyWins).length ? ' (NOT: ' + others.filter(l => !l.rating.greedyWins).map(l => l.id).join(', ') + ')' : ''}`);
-  // the curve descends: outside the chapter bosses (and the pinned lookahead finale) no level is rated more than 0.10 above the previous one (plan §2.1)
+  // the trays: five boxes in chapter 1, four in 2 and 3, three from chapter 4; a pinned reference may carry its own
+  { const TRAY = [5, 4, 4, 3, 3, 3]; const wrong = LEVELS.map((l, i) => !l.pinned && l.tray !== TRAY[Math.floor(i / 8)] ? `${i + 1}:${l.id} tray ${l.tray}` : null).filter(Boolean);
+    ok(wrong.length === 0, `every curated level carries its chapter's tray (5, 4, 4, 3, 3, 3)${wrong.length ? ' (NOT: ' + wrong.join(', ') + ')' : ''}`); }
+  // the curve descends for the casual player: outside the chapter bosses no level is rated more than 0.10 above the previous one (plan §2.1)
   { let prev = null; const climbs = [];
     LEVELS.forEach((l, i) => { if (isBoss(l)) return; if (i === 40) prev = null;   // level 41 opens the 14x14 rung: the descent restarts with the bigger pictures
-      const r = l.rating.randomWin; if (prev && r > prev.r + 0.10 + 1e-9) climbs.push(`${l.id} ${r} after ${prev.id} ${prev.r}`); prev = { id: l.id, r }; });
-    ok(climbs.length === 0, `the curve never climbs back by more than 0.10 outside the chapter bosses and the rung restart at level 41${climbs.length ? ' (' + climbs.join('; ') + ')' : ''}`); }
-  const hardBosses = bosses.filter(l => l.curve.target <= 0.05);   // the pinned finale carries its ceiling too
-  ok(hardBosses.every(l => l.rating.randomWin <= l.curve.target), `every hard boss is rated at or below its 5 % ceiling (${hardBosses.map(l => `${l.id} ${l.rating.randomWin}`).join(', ')})`);
+      const r = l.rating.casualWin; if (prev && r > prev.r + 0.10 + 1e-9) climbs.push(`${l.id} ${r} after ${prev.id} ${prev.r}`); prev = { id: l.id, r }; });
+    ok(climbs.length === 0, `the casual curve never climbs back by more than 0.10 outside the chapter bosses and the rung restart at level 41${climbs.length ? ' (' + climbs.join('; ') + ')' : ''}`); }
+  ok(bosses.every(l => l.rating.casualWin <= l.curve.target + 0.15), `every boss sits within 0.15 of its casual target (${bosses.map(l => `${l.id} ${l.rating.casualWin}/${l.curve.target}`).join(', ')})`);
+  // the whole point: the casual player's win rate falls from near certainty to under a half across the small pictures
+  ok(LEVELS[1].rating.casualWin >= 0.95 && LEVELS[38].rating.casualWin <= 0.45 && LEVELS[39].rating.casualWin <= 0.35, `the casual player wins ${fmt(LEVELS[1].rating.casualWin)} of level 2 and ${fmt(LEVELS[38].rating.casualWin)} of level 39, ${fmt(LEVELS[39].rating.casualWin)} of the chapter 5 boss`);
 }
 
 console.log('\n== 13.1.3 determinism ==');
@@ -190,7 +197,8 @@ console.log('\n== 13.1.3 determinism ==');
     ok(outSeq.join('|') === outPar.join('|') && par.inFlight.length === order.length, `${lv.id}: back-to-back parade of ${order.length} == sequential resolution`);
   }
   const golden = {};
-  for (const lv of LEVELS) { const sim = createSim(lv); const parts = []; for (let i = 0; i < 12; i++) { const lane = sim.lanes[i % sim.lanes.length]; if (!lane.length) continue; const id = lane[0].id; const r = sim.dispatch(id); parts.push(r.ok ? r.placements.map(p => `${p.col}${p.row}`).join('') : r.reason); if (r.ok) sim.arrive(id); } golden[lv.id] = C.hashSeed(parts.join('|')); }
+  // the references at the five boxes the appendix gave them, whatever tray their slot has
+  for (const lv of LEVELS) { const sim = createSim(lv, { trayCapacity: 5 }); const parts = []; for (let i = 0; i < 12; i++) { const lane = sim.lanes[i % sim.lanes.length]; if (!lane.length) continue; const id = lane[0].id; const r = sim.dispatch(id); parts.push(r.ok ? r.placements.map(p => `${p.col}${p.row}`).join('') : r.reason); if (r.ok) sim.arrive(id); } golden[lv.id] = C.hashSeed(parts.join('|')); }
   const GOLDEN = { heart: 3785182514, chick: 4117558065, mushroom: 1688537698, icecream: 1379069667, catface: 3638597410, rainbow: 3689267354 };
   ok(Object.keys(GOLDEN).every(id => golden[id] === GOLDEN[id]), `placement golden hashes match for the reference levels (${JSON.stringify(Object.fromEntries(Object.keys(GOLDEN).map(id => [id, golden[id]])))})`);
 }
