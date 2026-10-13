@@ -330,6 +330,12 @@ const scenarios = {
     // ?debug=0 previews the live channel: no Debug button, D does nothing, no seed field (the deploy flips BUILD.channel instead)
     const dev = await api.page.evaluate(() => ({ devTools: SC.devTools, foot: document.getElementById('foot-label').textContent }));
     ok(dev.devTools === false && dev.foot === 'web prototype', `dev tools off with ?debug=0, label follows ("${dev.foot}")`);
+    const next = await api.page.evaluate(() => ({ cards: document.querySelectorAll('#tiles .tile.next').length, tiles: document.querySelectorAll('#tiles .tile').length, chaps: document.querySelectorAll('#chapters .chap').length, name: document.querySelector('#tiles .tile.next .name').textContent, toggle: !!document.getElementById('btn-all-levels') }));
+    ok(next.cards === 1 && next.tiles === 1 && next.chaps === 0 && /^Level 1 · /.test(next.name) && !next.toggle, `players see one card, the next level, no grid and no toggle (${next.name})`);
+    await api.clickSel('#tiles .tile.next'); await api.run(100);
+    ok((await api.page.evaluate(() => SC.Game.levelIndex)) === 0 && (await api.snap()).status === 'playing', 'the card starts that level');
+    await api.page.evaluate(() => { SC.progress.done[SC.LEVELS[0].id] = { timeSec: 1, dispatches: 1, when: 1 }; SC.UI.showSelect(); }); await api.run(50);
+    ok(/^Level 2 · /.test(await api.text('#tiles .tile.next .name')), 'with level 1 done the card offers level 2');
     await api.clickSel('#btn-settings2'); await api.run(50);
     let txt = await api.text('#panel'); ok(/Reset progress/.test(txt) && !/Debug/.test(txt), 'settings has no Debug button');
     await api.clickSel('#panel .btn:has-text("Done")'); await api.run(50);

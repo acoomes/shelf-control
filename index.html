@@ -44,6 +44,10 @@ h1{font-weight:700;font-size:38px;margin:0;letter-spacing:.5px;text-shadow:0 2px
 .chap.done::after{content:"✓";font-size:11px;margin-left:3px;color:#5FD38D}
 .chap.on.done::after{color:#fff}
 .tile.gen .dice{width:104px;height:84px;border-radius:12px;background:linear-gradient(135deg,#FFD84D,#FF9CCB);display:flex;align-items:center;justify-content:center;font-size:48px}
+.tile.next{grid-column:1/-1;padding:14px 12px 12px;gap:6px}
+.tile.next .name{font-size:20px}
+.tile.next .play{margin-top:6px;border:0;border-radius:14px;padding:12px 44px;font:700 20px Fredoka,ui-rounded,system-ui,sans-serif;background:#5FD38D;color:#1F3A2A;box-shadow:0 3px 0 rgba(51,40,79,.25);pointer-events:none}
+.tile.next.finished .play{background:#9B7BFF;color:#fff}
 .foot{margin:10px 0 0;font-size:13px;opacity:.7}
 #daily{width:100%;margin:0 0 10px}
 .tile.daily{flex-direction:row;align-items:center;gap:12px;padding:8px 12px;text-align:left;width:100%;box-sizing:border-box}
@@ -1557,7 +1561,7 @@ const Audio = (() => {
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2200; lp.Q.value = 0.7; lp.connect(g);
     osc('triangle', f, t, t + 0.3, lp, det);
     const g2 = ctx.createGain(); g2.gain.value = 0.3; g2.connect(lp); osc('sine', f * 2, t, t + 0.3, g2, det);
-    if (step >= 13) {                                  // top of the ladder: hold with a little sparkle
+    if (step >= 9) {                                   // top of the phrase: a little sparkle
       const gs = voice(0.5); env(gs, t + 0.01, 0.12, 0.01, 0.4); osc('sine', f * 4, t, t + 0.5, gs, rand(-8, 8));
     }
   }
@@ -2140,7 +2144,9 @@ function onLanding(b) {
   const n = reducedMotion() ? 1 : 4, cx = b.x + L.cell / 2, cy = b.up ? b.y1 : b.y1 + L.cell;
   for (let i = 0; i < n; i++) addParticle('dust', cx + rand(-L.cell * 0.4, L.cell * 0.4), cy, rand(-40, 40), b.up ? rand(-50, -10) : rand(-30, -5), rand(0.25, 0.45), 'rgba(255,244,224,0.85)', rand(2.5, 4.5));
   // landing melody: pentatonic ladder while landings keep coming within comboWindow
-  if (G.time - G.combo.last <= CONFIG.comboWindow) G.combo.step = Math.min(G.combo.step + 1, 13); else G.combo.step = 0;
+  // ten notes up two octaves, then the phrase starts over a third up from the bottom: on a big picture landings never stop,
+  // and a ladder that only climbs would sit on its top note for the rest of the level
+  if (G.time - G.combo.last <= CONFIG.comboWindow) G.combo.step = G.combo.step >= 9 ? 2 : G.combo.step + 1; else G.combo.step = 0;
   G.combo.last = G.time;
   Audio.pluck(G.combo.step); vibrate(8);
   // row completed?
@@ -2619,9 +2625,27 @@ const UI = (() => {
   let currentChapter = null;
   function defaultChapter() { const first = LEVELS.findIndex(lv => !progress.done[lv.id]); return chapterOf(first < 0 ? LEVELS.length - 1 : first); }
   function showChapter(c) { currentChapter = clamp(c, 0, chapterCount() - 1); Store.set('sc.chapter', currentChapter); buildTiles(); }
+  // Players get one level at a time: the first one not yet done, as a single card (plan: keep it stupid simple). The chapter
+  // grid, the generated chooser and the preview tiles are developer tools, on by default on the test build and switchable
+  // from its footer; ?debug=0 previews the player's screen.
+  let allLevels = devTools && Store.get('sc.allLevels', true) !== false;
+  function nextIndex() { const i = LEVELS.findIndex(lv => !progress.done[lv.id]); return i; }   // -1 once every level is done
+  function buildNext() {
+    const i = nextIndex(), finished = i < 0, lv = finished ? LEVELS[0] : LEVELS[i];
+    const doneCount = LEVELS.filter(l => progress.done[l.id]).length;
+    const t = el('button', 'tile next' + (finished ? ' finished' : '')); t.type = 'button';
+    t.appendChild(artThumb(lv.art, finished, 150, 118));
+    t.appendChild(el('div', 'name', finished ? `All ${LEVELS.length} levels done` : `Level ${i + 1} · ${lv.name}`));
+    const colors = Object.keys(colorCounts(columns(lv.art))).length, blocks = lv.art.join('').replace(/\./g, '').length;
+    t.appendChild(el('div', 'meta', finished ? 'play them again from the start' : `${colors} colours · ${blocks} blocks${doneCount ? ` · ${doneCount} done` : ''}`));
+    t.appendChild(el('div', 'play', finished ? 'Play again' : 'Play'));
+    t.addEventListener('click', () => { Audio.init(); if (finished) { progress.done = {}; saveProgress(true); } play(finished ? 0 : i); });
+    tiles.appendChild(t);
+  }
   function buildTiles() {
-    if (currentChapter === null) { const saved = Store.get('sc.chapter', null); currentChapter = Number.isInteger(saved) ? clamp(saved, 0, chapterCount() - 1) : defaultChapter(); }
     chapters.innerHTML = ''; tiles.innerHTML = '';
+    if (!allLevels) { buildNext(); return; }
+    if (currentChapter === null) { const saved = Store.get('sc.chapter', null); currentChapter = Number.isInteger(saved) ? clamp(saved, 0, chapterCount() - 1) : defaultChapter(); }
     const n = chapterCount(), doneIn = (c) => LEVELS.slice(c * CHAPTER, (c + 1) * CHAPTER).filter(lv => progress.done[lv.id]).length;
     if (n > 1) for (let c = 0; c < n; c++) {
       const size = Math.min(LEVELS.length, (c + 1) * CHAPTER) - c * CHAPTER;
@@ -2968,7 +2992,8 @@ const UI = (() => {
   $('#btn-settings').addEventListener('click', () => { Audio.init(); if (Game.state === 'winning' || Game.state === 'failing') return; if (modalOpen() && !levelOver()) closeModal(); else showSettings(); });   // the card is about to open
   $('#btn-settings2').addEventListener('click', () => { Audio.init(); showSettings(); });
   modal.addEventListener('pointerdown', (e) => { if (e.target === modal && Game.sim && Game.state === 'playing') closeModal(); });
-  return { showSelect, play, playGenerated, playDaily, restart, onLevelStart, showCard, showSettings, showGen, tutorialEvent, toggleDebug, updateDebug, closeModal, modalOpen, artThumb, shareOrCopy };
+  const setAllLevels = (v) => { allLevels = !!v; Store.set('sc.allLevels', allLevels); if (!Game.sim) buildTiles(); };
+  return { showSelect, play, playGenerated, playDaily, restart, onLevelStart, showCard, showSettings, showGen, tutorialEvent, toggleDebug, updateDebug, closeModal, modalOpen, artThumb, shareOrCopy, allLevels: () => allLevels, setAllLevels, nextIndex };
 })();
 
 // ------------------------------ BOOT ------------------------------
@@ -3035,7 +3060,13 @@ function boot() {
   view.lastFrame = performance.now();
   requestAnimationFrame(loop);
   window.__selftest = selftest;
-  if (devTools) $('#foot-label').textContent = 'test build';   // follows the override too, so ?debug=0 previews the live presentation
+  if (devTools) {   // follows the override too, so ?debug=0 previews the live presentation
+    $('#foot-label').textContent = 'test build';
+    const foot = $('#foot-label').parentNode, sw = document.createElement('button'); sw.type = 'button'; sw.className = 'link'; sw.id = 'btn-all-levels';
+    const label = () => { sw.textContent = UI.allLevels() ? 'next level only' : 'all levels'; };
+    sw.addEventListener('click', () => { UI.setAllLevels(!UI.allLevels()); label(); });
+    foot.appendChild(document.createTextNode(' · ')); foot.appendChild(sw); label();
+  }
   // offline after the first load (plan §2.4): the worker caches this file and its icons; only over http(s), never from a file:// open
   try { if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('./sw.js').catch(() => {}); } catch (e) { /* ignore */ }
   // plan §2.3: a session, and an install once, inferred on the first home-screen launch where the browser gives no event (iOS)
