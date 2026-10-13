@@ -388,6 +388,10 @@ const scenarios = {
     await api.clickSel('#chapters .chap', 2); await api.run(20);
     s = await api.page.evaluate(() => ({ on: document.querySelector('#chapters .chap.on').textContent, first: document.querySelector('#tiles .tile .name').textContent, tiles: document.querySelectorAll('#tiles .tile:not(.gen)').length }));
     ok(s.on === '3' && /^17\. /.test(s.first) && s.tiles === 8, 'chapter 3 starts at level 17');
+    // the tray a level is played with is the one it was rated at: five boxes in chapter 1, three in chapter 4 (and the +1 box continue still adds one)
+    const trays = await api.page.evaluate(() => { const at = (i) => { SC.Game.levelIndex = i; SC.startLevel(SC.LEVELS[i]); return SC.Game.sim.boxes.length; }; return { l1: at(0), l25: at(24), tray25: SC.LEVELS[24].tray }; });
+    ok(trays.l1 === 5 && trays.l25 === 3 && trays.tray25 === 3, `a level is played with its own tray: level 1 builds ${trays.l1} boxes, level 25 builds ${trays.l25}`);
+    await api.page.evaluate(() => SC.UI.showSelect()); await api.run(20);
     await api.start(11); await api.run(50); await api.page.evaluate(() => SC.UI.showSelect()); await api.run(20);
     s = await api.page.evaluate(() => ({ on: document.querySelector('#chapters .chap.on').textContent, first: document.querySelector('#tiles .tile .name').textContent }));
     ok(s.on === '2' && /^9\. /.test(s.first), 'coming back from level 12 lands on chapter 2');

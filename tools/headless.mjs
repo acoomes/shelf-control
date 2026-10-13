@@ -138,7 +138,7 @@ for (const lv of PINNED) {
   ok(greedy === ref.greedyWins, `${lv.id}: greedy wins=${greedy} (appendix ${ref.greedyWins})`);
 }
 {
-  const N = quick ? 100 : 300; let off = [], casualOff = [], greedyOff = [];
+  const N = 300; let off = [], casualOff = [], greedyOff = [];   // 300 in quick mode too: at 100 the ±0.10 check fails deterministically on one level
   for (const lv of LEVELS) {
     const { cols, lanes, cap } = GEN.lanesOf(lv);   // at the level's own tray
     const rate = GEN.randomWinRate(cols, lanes, cap, makeRng(C.hashSeed('rate:' + lv.id)), N);

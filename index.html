@@ -2003,7 +2003,8 @@ function startLevel(def, opts = {}) {
   if (def.daily) { daily.attempts[def.daily.key] = (daily.attempts[def.daily.key] || 0) + 1; saveDaily(); }   // retries are allowed and counted (plan §2.2)
   G.play = Telemetry.id();                                          // one play: its start, a continue if taken, and each ending share it
   Telemetry.record('level_start', levelProps());
-  G.sim = createSim(def, { mode: G.mode, trayCapacity: CONFIG.trayCapacity, shelfCapacity: CONFIG.shelfCapacity });
+  // a baked level brings its own tray (five boxes in chapter 1 down to three); the debug slider and the chooser's default apply to the rest
+  G.sim = createSim(def, { mode: G.mode, trayCapacity: def.tray ?? CONFIG.trayCapacity, shelfCapacity: CONFIG.shelfCapacity });
   G.L = computeLayout(G.sim);
   G.actors = G.sim.cats.map(makeActor);
   G.flight = []; G.blocks = []; G.settle = []; G.particles = []; G.texts = []; G.sweeps = []; G.boxFx = []; G.levelSeq = (G.levelSeq || 0) + 1;
@@ -2957,7 +2958,7 @@ const UI = (() => {
     debug.appendChild(slider('minDispatchGap', 'minDispatchGap', 0.1, 0.6, 0.02));
     debug.appendChild(slider('graceSeconds', 'graceSeconds', 1, 5, 0.1));
     debug.appendChild(slider('shelfCapacity', 'shelfCapacity', 1, 8, 1, v => { if (Game.sim) Game.sim.shelfCapacity = v; }));
-    debug.appendChild(slider('trayCapacity (on restart)', 'trayCapacity', 3, 8, 1));
+    debug.appendChild(slider('trayCapacity (on restart; generated and daily, a baked level keeps its own)', 'trayCapacity', 3, 8, 1));
     const modeRow = el('div'); modeRow.appendChild(document.createTextNode('mode '));
     dbgMode = document.createElement('select');
     for (const m of ['build', 'yoink']) { const o = document.createElement('option'); o.value = m; o.textContent = m; dbgMode.appendChild(o); }
