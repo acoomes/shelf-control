@@ -330,6 +330,23 @@ const scenarios = {
     // ?debug=0 previews the live channel: no Debug button, D does nothing, no seed field (the deploy flips BUILD.channel instead)
     const dev = await api.page.evaluate(() => ({ devTools: SC.devTools, foot: document.getElementById('foot-label').textContent }));
     ok(dev.devTools === false && dev.foot === 'web prototype', `dev tools off with ?debug=0, label follows ("${dev.foot}")`);
+    const next = await api.page.evaluate(() => ({ cards: document.querySelectorAll('#tiles .tile.next').length, tiles: document.querySelectorAll('#tiles .tile').length, chaps: document.querySelectorAll('#chapters .chap').length, name: document.querySelector('#tiles .tile.next .name').textContent, toggle: !!document.getElementById('btn-all-levels') }));
+    ok(next.cards === 1 && next.tiles === 1 && next.chaps === 0 && /^Level 1 · /.test(next.name) && !next.toggle, `players see one card, the next level, no grid and no toggle (${next.name})`);
+    await api.clickSel('#tiles .tile.next'); await api.run(100);
+    ok((await api.page.evaluate(() => SC.Game.levelIndex)) === 0 && (await api.snap()).status === 'playing', 'the card starts that level');
+    await api.page.evaluate(() => { SC.progress.done[SC.LEVELS[0].id] = { timeSec: 1, dispatches: 1, when: 1 }; SC.UI.showSelect(); }); await api.run(50);
+    ok(/^Level 2 · /.test(await api.text('#tiles .tile.next .name')), 'with level 1 done the card offers level 2');
+    // a win's Next goes to the first unfinished level, not the next index: with levels 1 and 2 done, a replay of level 1 continues at 3
+    await api.page.evaluate(() => { SC.progress.done[SC.LEVELS[1].id] = { timeSec: 1, dispatches: 1, when: 1 }; SC.UI.play(0); }); await api.run(100);
+    await playSolution(api); await api.run(1800);
+    await api.clickSel('#panel .btn.good'); await api.run(100);
+    ok((await api.page.evaluate(() => SC.Game.levelIndex)) === 2, 'Next after a replayed win continues at the first unfinished level');
+    // every level done: the card offers Play again, which forgets this build's levels only (an id from the other build on this origin survives)
+    await api.page.evaluate(() => { for (const l of SC.LEVELS) SC.progress.done[l.id] = { timeSec: 1, dispatches: 1, when: 1 }; SC.progress.done['other-build-9'] = { timeSec: 1, dispatches: 1, when: 1 }; SC.UI.showSelect(); }); await api.run(50);
+    ok(/All \d+ levels done/.test(await api.text('#tiles .tile.next .name')), 'with every level done the card says so');
+    await api.clickSel('#tiles .tile.next'); await api.run(100);
+    const again = await api.page.evaluate(() => ({ idx: SC.Game.levelIndex, keys: Object.keys(JSON.parse(localStorage.getItem('sc.progress')).done) }));
+    ok(again.idx === 0 && again.keys.length === 1 && again.keys[0] === 'other-build-9', `Play again starts level 1 and keeps the other build's progress (${again.keys.join(', ')})`);
     await api.clickSel('#btn-settings2'); await api.run(50);
     let txt = await api.text('#panel'); ok(/Reset progress/.test(txt) && !/Debug/.test(txt), 'settings has no Debug button');
     await api.clickSel('#panel .btn:has-text("Done")'); await api.run(50);
@@ -373,10 +390,14 @@ const scenarios = {
     ok(s.pills === 6 && s.on === '1' && s.tiles === 8 && s.gen === 1 && s.big === 4 && /^1\. /.test(s.first), `chapter 1: six chapter pills, eight levels, the generated tile and four big-picture previews (${JSON.stringify(s)})`);
     await api.clickSel('#chapters .chap', 5); await api.run(20);
     s = await api.page.evaluate(() => ({ on: document.querySelector('#chapters .chap.on').textContent, first: document.querySelector('#tiles .tile .name').textContent, tiles: document.querySelectorAll('#tiles .tile:not(.gen)').length, last: [...document.querySelectorAll('#tiles .tile:not(.gen) .meta')].pop().textContent, blocks: document.querySelector('#tiles .tile:not(.gen) .meta').textContent }));
-    ok(s.on === '6' && /^41\. Balloon/.test(s.first) && s.tiles === 8 && /196 blocks/.test(s.blocks) && /needs lookahead/.test(s.last), `chapter 6 is the 14×14 rung: level 41 is Balloon, 196 blocks, level 48 needs lookahead (${s.last})`);
+    ok(s.on === '6' && /^41\. (Balloon|Rocket|Mug|Frog)/.test(s.first) && s.tiles === 8 && /196 blocks/.test(s.blocks) && /needs lookahead/.test(s.last), `chapter 6 is the 14×14 rung: level 41 is a 14×14 picture (${s.first}), 196 blocks, level 48 needs lookahead (${s.last})`);
     await api.clickSel('#chapters .chap', 2); await api.run(20);
     s = await api.page.evaluate(() => ({ on: document.querySelector('#chapters .chap.on').textContent, first: document.querySelector('#tiles .tile .name').textContent, tiles: document.querySelectorAll('#tiles .tile:not(.gen)').length }));
     ok(s.on === '3' && /^17\. /.test(s.first) && s.tiles === 8, 'chapter 3 starts at level 17');
+    // the tray a level is played with is the one it was rated at: five boxes in chapter 1, three in chapter 4 (and the +1 box continue still adds one)
+    const trays = await api.page.evaluate(() => { const at = (i) => { SC.Game.levelIndex = i; SC.startLevel(SC.LEVELS[i]); return SC.Game.sim.boxes.length; }; return { l1: at(0), l25: at(24), tray25: SC.LEVELS[24].tray }; });
+    ok(trays.l1 === 5 && trays.l25 === 3 && trays.tray25 === 3, `a level is played with its own tray: level 1 builds ${trays.l1} boxes, level 25 builds ${trays.l25}`);
+    await api.page.evaluate(() => SC.UI.showSelect()); await api.run(20);
     await api.start(11); await api.run(50); await api.page.evaluate(() => SC.UI.showSelect()); await api.run(20);
     s = await api.page.evaluate(() => ({ on: document.querySelector('#chapters .chap.on').textContent, first: document.querySelector('#tiles .tile .name').textContent }));
     ok(s.on === '2' && /^9\. /.test(s.first), 'coming back from level 12 lands on chapter 2');
