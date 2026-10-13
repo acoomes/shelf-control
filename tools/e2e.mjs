@@ -341,6 +341,12 @@ const scenarios = {
     await playSolution(api); await api.run(1800);
     await api.clickSel('#panel .btn.good'); await api.run(100);
     ok((await api.page.evaluate(() => SC.Game.levelIndex)) === 2, 'Next after a replayed win continues at the first unfinished level');
+    // every level done: the card offers Play again, which forgets this build's levels only (an id from the other build on this origin survives)
+    await api.page.evaluate(() => { for (const l of SC.LEVELS) SC.progress.done[l.id] = { timeSec: 1, dispatches: 1, when: 1 }; SC.progress.done['other-build-9'] = { timeSec: 1, dispatches: 1, when: 1 }; SC.UI.showSelect(); }); await api.run(50);
+    ok(/All \d+ levels done/.test(await api.text('#tiles .tile.next .name')), 'with every level done the card says so');
+    await api.clickSel('#tiles .tile.next'); await api.run(100);
+    const again = await api.page.evaluate(() => ({ idx: SC.Game.levelIndex, keys: Object.keys(JSON.parse(localStorage.getItem('sc.progress')).done) }));
+    ok(again.idx === 0 && again.keys.length === 1 && again.keys[0] === 'other-build-9', `Play again starts level 1 and keeps the other build's progress (${again.keys.join(', ')})`);
     await api.clickSel('#btn-settings2'); await api.run(50);
     let txt = await api.text('#panel'); ok(/Reset progress/.test(txt) && !/Debug/.test(txt), 'settings has no Debug button');
     await api.clickSel('#panel .btn:has-text("Done")'); await api.run(50);

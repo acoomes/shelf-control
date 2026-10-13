@@ -2662,7 +2662,8 @@ const UI = (() => {
     const colors = Object.keys(colorCounts(columns(lv.art))).length, blocks = lv.art.join('').replace(/\./g, '').length;
     t.appendChild(el('div', 'meta', finished ? 'play them again from the start' : `${colors} colours · ${blocks} blocks${doneCount ? ` · ${doneCount} done` : ''}`));
     t.appendChild(el('div', 'play', finished ? 'Play again' : 'Play'));
-    t.addEventListener('click', () => { Audio.init(); if (finished) { progress.done = {}; saveProgress(true); } play(finished ? 0 : i); });
+    // starting over forgets this build's levels only: the other build on this origin keeps what it earned (a replacing write, since a merge would bring them back)
+    t.addEventListener('click', () => { Audio.init(); if (finished) { for (const l of LEVELS) delete progress.done[l.id]; saveProgress(true); } play(finished ? 0 : i); });
     tiles.appendChild(t);
   }
   function buildTiles() {
