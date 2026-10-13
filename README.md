@@ -65,7 +65,7 @@ What it defines: **retention** on `session_start` (first-time cohort, day 1 to d
 node tools/headless.mjs          # plan §13.1 + Phase 3 acceptance (≈90 s); --quick for a 5 s smoke run; --timing also asserts the 400 ms generation budget
 node tools/e2e.mjs               # Playwright scenarios in a real Chromium (fake clock); SHOTS=dir saves screenshots
 node tools/perf.mjs              # frame times per phase under 4x CPU throttling, plus a CPU profile of a parade
-node tools/curate.mjs            # re-bake the 48-level set from the arts table (≈3 min); --dry prints the curve without writing
+node tools/curate.mjs            # re-bake the 48-level set from the arts table (≈10 min; the defaults reproduce the checked-in set); --dry prints the curve without writing
 node tools/icons.mjs             # re-render the app icons from the game's cat routine
 tools/assemble.sh . out/live live    # assemble a build the way the deploy does (also: out/test test)
 ```

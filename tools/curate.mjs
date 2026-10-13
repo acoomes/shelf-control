@@ -9,7 +9,8 @@
 // them there.
 //   node tools/curate.mjs            # bake into index.html and print the curve
 //   node tools/curate.mjs --dry      # print the curve only
-//   --seeds N (3)  --arts N (8)      # seeds per art per slot, arts tried per slot: more is slower and slightly better
+//   --seeds N (4)  --arts N (10)     # seeds per art per slot, arts tried per slot: the defaults are what the checked-in set was baked with
+//                                    # (the lookahead slots of chapter 5 need the wider search); more is slower and slightly better
 //   --allow-off-band                 # a written decision (plan §2.1): let a slot take a candidate outside its rung's dispatch band
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,7 +29,7 @@ const { ARTS, LEVELS, GEN, loadLevel, layoutHash, makeRng, pinnedId } = sandbox.
 const argv = process.argv.slice(2);
 const flag = (name, dflt) => { const i = argv.indexOf(name); return i >= 0 ? Number(argv[i + 1]) : dflt; };
 const DRY = argv.includes('--dry');
-const SEEDS = flag('--seeds', 3), ARTS_PER_SLOT = flag('--arts', 8);
+const SEEDS = flag('--seeds', 4), ARTS_PER_SLOT = flag('--arts', 10);   // the checked-in set's arguments: the default command reproduces it
 const ALLOW_OFF_BAND = argv.includes('--allow-off-band');
 const CHAPTER = 8;
 const MAX_USES = 4;                                      // an art appears at most this often across the set (sixteen small pictures for forty slots, with the pinned ones counting)
