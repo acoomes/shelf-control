@@ -336,6 +336,11 @@ const scenarios = {
     ok((await api.page.evaluate(() => SC.Game.levelIndex)) === 0 && (await api.snap()).status === 'playing', 'the card starts that level');
     await api.page.evaluate(() => { SC.progress.done[SC.LEVELS[0].id] = { timeSec: 1, dispatches: 1, when: 1 }; SC.UI.showSelect(); }); await api.run(50);
     ok(/^Level 2 · /.test(await api.text('#tiles .tile.next .name')), 'with level 1 done the card offers level 2');
+    // a win's Next goes to the first unfinished level, not the next index: with levels 1 and 2 done, a replay of level 1 continues at 3
+    await api.page.evaluate(() => { SC.progress.done[SC.LEVELS[1].id] = { timeSec: 1, dispatches: 1, when: 1 }; SC.UI.play(0); }); await api.run(100);
+    await playSolution(api); await api.run(1800);
+    await api.clickSel('#panel .btn.good'); await api.run(100);
+    ok((await api.page.evaluate(() => SC.Game.levelIndex)) === 2, 'Next after a replayed win continues at the first unfinished level');
     await api.clickSel('#btn-settings2'); await api.run(50);
     let txt = await api.text('#panel'); ok(/Reset progress/.test(txt) && !/Debug/.test(txt), 'settings has no Debug button');
     await api.clickSel('#panel .btn:has-text("Done")'); await api.run(50);

@@ -2825,10 +2825,10 @@ const UI = (() => {
       if (rec.autoLoops) box.appendChild(el('p', 'small', `The last cat finished by itself: ${rec.autoLoops} extra lap${rec.autoLoops > 1 ? 's' : ''}.`));
       if (d) { const streak = DAILY.alive(daily, Date.now()); box.appendChild(el('p', 'small', streak > 1 ? `🔥 ${streak}-day streak` : 'Come back tomorrow for a new one.')); }
       const row = el('div', 'row');
-      const hasNext = G.levelIndex >= 0 && G.levelIndex + 1 < LEVELS.length;
+      const next = G.levelIndex >= 0 ? nextIndex() : -1, hasNext = next >= 0;   // the first level not yet done, which is not always the next index (a replay, or progress left by the old grid)
       if (d) { const sh = button('Share', 'good', () => shareDaily(sh, d.key)); row.appendChild(sh); row.appendChild(button('Levels', 'secondary', showSelect)); row.appendChild(button('Replay', 'secondary', restart)); }
       else {
-        row.appendChild(button(hasNext ? 'Next' : 'Levels', 'good', () => (hasNext ? play(G.levelIndex + 1) : showSelect())));
+        row.appendChild(button(hasNext ? 'Next' : 'Levels', 'good', () => (hasNext ? play(next) : showSelect())));
         row.appendChild(button('Replay', 'secondary', restart));
         if (hasNext) row.appendChild(button('Levels', 'secondary', showSelect));
       }
