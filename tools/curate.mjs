@@ -9,7 +9,8 @@
 // them there.
 //   node tools/curate.mjs            # bake into index.html and print the curve
 //   node tools/curate.mjs --dry      # print the curve only
-//   --seeds N (3)  --arts N (8)      # seeds per art per slot, arts tried per slot: more is slower and slightly better
+//   --seeds N (4)  --arts N (10)     # seeds per art per slot, arts tried per slot: the defaults are what the checked-in set was baked with
+//                                    # (the lookahead slots of chapter 5 need the wider search); more is slower and slightly better
 //   --allow-off-band                 # a written decision (plan §2.1): let a slot take a candidate outside its rung's dispatch band
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,10 +29,10 @@ const { ARTS, LEVELS, GEN, loadLevel, layoutHash, makeRng, pinnedId } = sandbox.
 const argv = process.argv.slice(2);
 const flag = (name, dflt) => { const i = argv.indexOf(name); return i >= 0 ? Number(argv[i + 1]) : dflt; };
 const DRY = argv.includes('--dry');
-const SEEDS = flag('--seeds', 3), ARTS_PER_SLOT = flag('--arts', 8);
+const SEEDS = flag('--seeds', 4), ARTS_PER_SLOT = flag('--arts', 10);   // the checked-in set's arguments: the default command reproduces it
 const ALLOW_OFF_BAND = argv.includes('--allow-off-band');
 const CHAPTER = 8;
-const MAX_USES = 3;                                      // an art appears at most this often across the set
+const MAX_USES = 4;                                      // an art appears at most this often across the set (sixteen small pictures for forty slots, with the pinned ones counting)
 const RATE_N = 300;                                      // casual playouts per rating
 // Rungs: chapters 1 to 5 are the small pictures in the prototype plan's H4 band of 25 to 40 dispatches. From chapter 6 the
 // pictures grow a rung per chapter (iteration 3): each rung has its own band, measured on its arts at these targets, and its
@@ -45,17 +46,20 @@ const rungOf = (n) => RUNGS.find(r => n >= r.from && n <= r.to) || (() => { cons
 // The tray per chapter: five boxes to learn with, four, then three. A pinned level names its own.
 const TRAY = [5, 4, 4, 3, 3, 3];
 
-// The curve, one entry per level. A number is the casual player's win rate to aim for; `pin` keeps a hand-made level in that
-// slot (with `tray` where its rating needs one); `boss` closes a chapter with a level the greedy player loses, at that casual
-// target. Lookahead levels live only in boss slots: every other level must be one the greedy player solves (plan §2.1).
-// Chapter 1 is the onboarding chapter and has no boss; every later chapter closes with one. That shape is checked below.
+// The curve, one entry per level. A number is the casual player's win rate to aim for on a level the greedy player solves
+// (tap whatever fits and you win: the first two chapters); `look` is the same target on a level the greedy player LOSES and
+// a player who looks one move ahead wins (the first playtest of the curated set won every greedy-solvable level without
+// thinking, so from chapter 3 the levels need a thought and from chapter 4 every one does); `pin` keeps a hand-made level
+// in that slot (with `tray` where its rating needs one); `boss` closes a chapter with a level the greedy player loses, with
+// no promise that one move of lookahead is enough. Chapter 1 has no boss; every later chapter closes with one.
+const look = (t) => ({ look: t });
 const CURVE = [
   { pin: 'heart' }, { pin: 'chick' }, 0.99, 0.98, 0.97, 0.96, 0.95, 0.94,
   { pin: 'icecream', tray: 4 }, 0.90, 0.87, 0.84, 0.81, 0.78, 0.75, { boss: 0.62 },
-  0.74, 0.71, 0.68, 0.65, { pin: 'mushroom', tray: 3 }, 0.60, 0.57, { boss: 0.50 },
-  0.60, 0.58, 0.56, { pin: 'catface', tray: 2 }, 0.50, 0.47, 0.44, { pin: 'rainbow', boss: 0.35, tray: 3 },
-  0.46, 0.43, 0.40, 0.38, 0.36, 0.34, 0.32, { boss: 0.25 },
-  0.80, 0.72, 0.65, 0.58, 0.52, 0.46, 0.40, { boss: 0.30 },   // chapter 6: the 14x14 rung, descent restarted
+  0.74, look(0.72), 0.68, look(0.66), 0.62, look(0.60), { pin: 'mushroom', tray: 3 }, { boss: 0.50 },
+  look(0.62), look(0.58), look(0.55), { pin: 'catface', tray: 2 }, look(0.50), look(0.47), look(0.44), { pin: 'rainbow', boss: 0.35, tray: 3 },
+  look(0.48), look(0.44), look(0.40), look(0.37), look(0.34), look(0.31), look(0.28), { boss: 0.22 },
+  look(0.72), look(0.65), look(0.58), look(0.52), look(0.46), look(0.40), look(0.35), { boss: 0.30 },   // chapter 6: the 14x14 rung, descent restarted
 ];
 
 CURVE.forEach((entry, i) => {
@@ -64,9 +68,11 @@ CURVE.forEach((entry, i) => {
   if (isBoss !== want) { console.error(`CURVE: level ${n} ${want ? 'must be' : 'may not be'} a boss (plan §2.1: a boss closes every chapter after the first and nothing else)`); process.exit(2); }
 });
 
-/** generator parameters for a casual target: the plan's presets by lane count and tray use, aimed at the casual rate */
-function presetFor(target, boss) {
+/** generator parameters for a casual target: the plan's presets by lane count and tray use, aimed at the casual rate; a
+ *  lookahead slot wants traps, which come from tray pressure, so it uses the fuller presets */
+function presetFor(target, boss, needLook) {
   if (boss) return { lanes: 4, refTrayMax: 4, pBig: 0.85, bigMult: [2.5, 4.5], target, metric: 'casual' };
+  if (needLook) return target >= 0.55 ? { lanes: 3, refTrayMax: 3, pBig: 0.65, bigMult: [2.0, 3.5], target, metric: 'casual' } : { lanes: 4, refTrayMax: 4, pBig: 0.85, bigMult: [2.5, 4.5], target, metric: 'casual' };
   if (target >= 0.90) return { lanes: 3, refTrayMax: 1, pBig: 0.45, bigMult: [1.5, 2.2], target, metric: 'casual' };
   if (target >= 0.70) return { lanes: 3, refTrayMax: 2, pBig: 0.45, bigMult: [1.5, 2.5], target, metric: 'casual' };
   if (target >= 0.45) return { lanes: 3, refTrayMax: 3, pBig: 0.65, bigMult: [2.0, 3.5], target, metric: 'casual' };
@@ -81,6 +87,7 @@ const chapterUses = []; CURVE.forEach((e, i) => { const c = Math.floor(i / CHAPT
 for (const e of CURVE) if (e.pin) uses[pinned[e.pin].artId]++;
 
 const out = [], rows = [], unfillable = [];
+const usedLayouts = new Set();                           // the same art, preset and seed reproduce the same level: a layout is baked once
 const CLIMB = 0.10;                                     // plan §2.1: outside the chapter bosses the curve never climbs back by more than this
 let lastNonBoss = null;                                 // rating of the previous non-boss level
 const t0 = Date.now();
@@ -106,8 +113,9 @@ CURVE.forEach((entry, i) => {
     }
     return;
   }
-  const boss = typeof entry === 'object', target = boss ? entry.boss : entry, tray = TRAY[chapter];
-  const presetName = `curve_${n}`; GEN.PRESETS[presetName] = presetFor(target, boss);
+  const boss = typeof entry === 'object' && entry.boss !== undefined, needLook = typeof entry === 'object' && entry.look !== undefined;
+  const target = boss ? entry.boss : needLook ? entry.look : entry, tray = TRAY[chapter];
+  const presetName = `curve_${n}`; GEN.PRESETS[presetName] = presetFor(target, boss, needLook);
   const candidates = Object.keys(ARTS).filter(a => rung.arts(a) && (chapterUses[chapter][a] || 0) < rung.perChapter && uses[a] < MAX_USES)   // the rung's own pictures
     .sort((a, b) => uses[a] - uses[b] || (chapterUses[chapter][a] || 0) - (chapterUses[chapter][b] || 0) || (a < b ? -1 : 1));
   const pool = candidates.slice(0, ARTS_PER_SLOT);
@@ -116,10 +124,12 @@ CURVE.forEach((entry, i) => {
     const lv = GEN.generateLevel({ art: ARTS[artId].art, artId, preset: presetName, seed, trayCap: tray });   // the game's own defaults: candidates by picture size, six finalists
     const d = lv.ref.length, outside = d < BAND[0] ? BAND[0] - d : d > BAND[1] ? d - BAND[1] : 0;
     const rate = lv.achieved;                            // the preset's metric is the casual rate: this is the combined 300-playout estimate the winner was chosen on
+    if (usedLayouts.has(layoutHash(ARTS[artId].art, lv.lanes))) continue;   // already baked in an earlier slot
     if (outside && !ALLOW_OFF_BAND) { if (!nearest || outside < nearest.outside) nearest = { artId, seed, d, achieved: rate, outside }; continue; }   // never a candidate
-    if (boss && lv.greedyWins) { if (!nearestBoss || Math.abs(rate - target) < Math.abs(nearestBoss.achieved - target)) nearestBoss = { artId, seed, d, achieved: rate }; continue; }   // a boss the greedy player solves is not a boss: binding, no override
+    if ((boss || needLook) && lv.greedyWins) { if (!nearestBoss || Math.abs(rate - target) < Math.abs(nearestBoss.achieved - target)) nearestBoss = { artId, seed, d, achieved: rate }; continue; }   // a boss or a lookahead level the greedy player solves is neither: binding, no override
+    if (needLook && !boss) { const Lk = loadLevel({ ...lv, tray }); if (!GEN.lookaheadWins(Lk.cols, Lk.lanes.map(l => l.map(c => [c.color, c.count])), tray)) { if (!nearestLook || Math.abs(rate - target) < Math.abs(nearestLook.achieved - target)) nearestLook = { artId, seed, d, achieved: rate }; continue; } }   // a mid-chapter trap must yield to one move of lookahead
     if (!boss && lastNonBoss !== null && rate > lastNonBoss + CLIMB + 1e-9) { if (!nearestClimb || rate < nearestClimb.achieved) nearestClimb = { artId, seed, d, achieved: rate }; continue; }   // would climb back up the curve
-    if (!boss && !lv.greedyWins) { if (!nearestLook || Math.abs(rate - target) < Math.abs(nearestLook.achieved - target)) nearestLook = { artId, seed, d, achieved: rate }; continue; }   // lookahead levels only close chapters
+    if (!boss && !needLook && !lv.greedyWins) { if (!nearestLook || Math.abs(rate - target) < Math.abs(nearestLook.achieved - target)) nearestLook = { artId, seed, d, achieved: rate }; continue; }   // a plain slot is one the greedy player solves
     const score = Math.abs(rate - target) + (outside ? 0.5 + 0.02 * outside : 0) + 0.03 * uses[artId];
     accepted.push({ score, lv, artId, seed, outside, rate });
   }
@@ -134,14 +144,15 @@ CURVE.forEach((entry, i) => {
     best = c; fresh = { rate: r, Lw, lanesW }; break;
   }
   if (!best) {
-    if (boss && nearestBoss && !nearest) unfillable.push(`level ${n} (boss, target ${target}, ${tray} boxes): every candidate is greedy-solvable; nearest ${nearestBoss.artId} seed ${nearestBoss.seed} rated ${nearestBoss.achieved.toFixed(2)}. Try more --seeds or --arts; there is no override for the boss rule`);
+    if ((boss || needLook) && nearestBoss && !nearest) unfillable.push(`level ${n} (${boss ? 'boss' : 'lookahead'}, target ${target}, ${tray} boxes): every candidate is greedy-solvable; nearest ${nearestBoss.artId} seed ${nearestBoss.seed} rated ${nearestBoss.achieved.toFixed(2)}. Try more --seeds or --arts; there is no override for the greedy rule`);
+    else if (needLook && nearestLook && !nearest) unfillable.push(`level ${n} (lookahead, target ${target}, ${tray} boxes): every greedy-losing candidate also beats one move of lookahead; nearest ${nearestLook.artId} seed ${nearestLook.seed} rated ${nearestLook.achieved.toFixed(2)}. Try more --seeds or --arts`);
     else if (nearestClimb && !nearest) unfillable.push(`level ${n} (target ${target}, ${tray} boxes): every in-band candidate is rated more than ${CLIMB} above the previous level (${lastNonBoss.toFixed(2)}); lowest ${nearestClimb.artId} seed ${nearestClimb.seed} rated ${nearestClimb.achieved.toFixed(2)}. Try more --seeds or --arts, or lower the earlier targets in CURVE`);
     else if (nearestLook && !nearest) unfillable.push(`level ${n} (target ${target}, ${tray} boxes): every in-band candidate needs lookahead, which only a boss slot may; nearest ${nearestLook.artId} seed ${nearestLook.seed} rated ${nearestLook.achieved.toFixed(2)}. Try more --seeds or --arts, or raise the target`);
     else unfillable.push(`level ${n} (target ${target}${boss ? ', boss' : ''}, ${tray} boxes): no candidate inside ${BAND[0]}–${BAND[1]} dispatches${boss ? ' that the greedy player loses' : ''}; nearest ${nearest ? `${nearest.artId} seed ${nearest.seed} at ${nearest.d} (rated ${nearest.achieved.toFixed(2)})` : 'none'}`);
     return;
   }
   const { lv, artId, seed } = best, { rate, Lw, lanesW } = fresh;
-  uses[artId]++; chapterUses[chapter][artId] = (chapterUses[chapter][artId] || 0) + 1;
+  uses[artId]++; chapterUses[chapter][artId] = (chapterUses[chapter][artId] || 0) + 1; usedLayouts.add(layoutHash(ARTS[artId].art, lv.lanes));
   if (!boss) lastNonBoss = rate;
   // the reference line as sim cat ids (cats are numbered lane by lane, front to back), so the headless suite can replay it
   const offsets = []; let acc = 0; for (const l of lv.lanes) { offsets.push(acc); acc += l.split(' ').length; }
@@ -149,10 +160,10 @@ CURVE.forEach((entry, i) => {
   const randomWin = Math.round(GEN.randomWinRate(Lw.cols, lanesW, tray, makeRng(7), 300) * 1000) / 1000;   // the plan's number, kept for the record
   // the id carries the layout, so a later bake that changes this slot's puzzle also changes the key progress is stored under
   const id = `${artId}-${n}-${layoutHash(ARTS[artId].art, lv.lanes)}`;
-  out.push({ id, name: ARTS[artId].name, artId, lanes: lv.lanes.slice(), tray, seed, curve: { target, boss, offBand: best.outside > 0, band: rung === RUNGS[0] ? undefined : BAND }, ref,
+  out.push({ id, name: ARTS[artId].name, artId, lanes: lv.lanes.slice(), tray, seed, curve: { target, boss, look: needLook, offBand: best.outside > 0, band: rung === RUNGS[0] ? undefined : BAND }, ref,
              rating: { randomWin, casualWin: Math.round(rate * 1000) / 1000, greedyWins: lv.greedyWins, dispatches: lv.ref.length } });
   rows.push({ n, id, target, achieved: rate, greedy: lv.greedyWins, dispatches: lv.ref.length, tray, band: BAND,
-              note: best.outside ? `off-band by ${best.outside} (written decision: --allow-off-band)` : '' });
+              note: (needLook ? 'needs a thought' : '') + (best.outside ? ` off-band by ${best.outside} (written decision: --allow-off-band)` : '') });
   process.stderr.write(`slot ${n}/${CURVE.length} ${artId} target ${target} → ${rate.toFixed(2)}${lv.greedyWins ? 'g' : 'L'}/${lv.ref.length} tray ${tray}\n`);
 });
 
@@ -172,7 +183,7 @@ function levelText(lv) {
   const lanes = lv.lanes.map(J).join(', ');
   const rating = lv.pinned
     ? `${lv.curve ? `curve:{ target:${lv.curve.target}, boss:true }, ` : ''}rating:{ randomWin:${lv.rating.randomWin}, casualWin:${lv.rating.casualWin}, greedyWins:${lv.rating.greedyWins} }`
-    : `seed:${lv.seed}, curve:{ target:${lv.curve.target}${lv.curve.boss ? ', boss:true' : ''}${lv.curve.offBand ? ', offBand:true' : ''}${lv.curve.band ? `, band:[${lv.curve.band.join(',')}]` : ''} },\n    rating:{ randomWin:${lv.rating.randomWin}, casualWin:${lv.rating.casualWin}, greedyWins:${lv.rating.greedyWins}, dispatches:${lv.rating.dispatches} },\n    ref:[${lv.ref.join(',')}]`;
+    : `seed:${lv.seed}, curve:{ target:${lv.curve.target}${lv.curve.boss ? ', boss:true' : ''}${lv.curve.look ? ', look:true' : ''}${lv.curve.offBand ? ', offBand:true' : ''}${lv.curve.band ? `, band:[${lv.curve.band.join(',')}]` : ''} },\n    rating:{ randomWin:${lv.rating.randomWin}, casualWin:${lv.rating.casualWin}, greedyWins:${lv.rating.greedyWins}, dispatches:${lv.rating.dispatches} },\n    ref:[${lv.ref.join(',')}]`;
   return `  { id:${J(lv.id)}, name:${J(lv.name)}, artId:${J(lv.artId)}, art:ARTS[${J(lv.artId)}].art, lanes:[ ${lanes} ], tray:${lv.tray},${lv.pinned ? ' pinned:true,' : ''}\n    ${rating} },\n`;
 }
 const block = "// ---- BAKED LEVELS: written by `node tools/curate.mjs`; do not edit by hand. Entries with pinned:true keep their hand-made\n"
