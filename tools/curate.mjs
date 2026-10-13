@@ -111,7 +111,7 @@ CURVE.forEach((entry, i) => {
   const candidates = Object.keys(ARTS).filter(a => rung.arts(a) && (chapterUses[chapter][a] || 0) < rung.perChapter && uses[a] < MAX_USES)   // the rung's own pictures
     .sort((a, b) => uses[a] - uses[b] || (chapterUses[chapter][a] || 0) - (chapterUses[chapter][b] || 0) || (a < b ? -1 : 1));
   const pool = candidates.slice(0, ARTS_PER_SLOT);
-  let best = null, nearest = null, nearestBoss = null, nearestClimb = null, nearestLook = null;
+  let best = null, nearest = null, nearestBoss = null, nearestClimb = null, nearestLook = null; const accepted = [];
   for (const artId of pool) for (let seed = 1; seed <= (rung.seeds || SEEDS); seed++) {
     const lv = GEN.generateLevel({ art: ARTS[artId].art, artId, preset: presetName, seed, trayCap: tray });   // the game's own defaults: candidates by picture size, six finalists
     const d = lv.ref.length, outside = d < BAND[0] ? BAND[0] - d : d > BAND[1] ? d - BAND[1] : 0;
@@ -121,7 +121,17 @@ CURVE.forEach((entry, i) => {
     if (!boss && lastNonBoss !== null && rate > lastNonBoss + CLIMB + 1e-9) { if (!nearestClimb || rate < nearestClimb.achieved) nearestClimb = { artId, seed, d, achieved: rate }; continue; }   // would climb back up the curve
     if (!boss && !lv.greedyWins) { if (!nearestLook || Math.abs(rate - target) < Math.abs(nearestLook.achieved - target)) nearestLook = { artId, seed, d, achieved: rate }; continue; }   // lookahead levels only close chapters
     const score = Math.abs(rate - target) + (outside ? 0.5 + 0.02 * outside : 0) + 0.03 * uses[artId];
-    if (!best || score < best.score) best = { score, lv, artId, seed, outside, rate };
+    accepted.push({ score, lv, artId, seed, outside, rate });
+  }
+  // the winner's selection estimate is biased toward the target (the best of many noisy numbers), so each candidate is
+  // re-measured with fresh playouts in score order and the first whose fresh rate still respects the descent is the level;
+  // that fresh number is what is baked, what the descent rule sees next, and what the suite re-measures against
+  let fresh = null;
+  for (const c of accepted.sort((a, b) => a.score - b.score)) {
+    const Lw = loadLevel({ ...c.lv, tray }); const lanesW = Lw.lanes.map(l => l.map(cc => [cc.color, cc.count]));
+    const r = GEN.casualWinRate(Lw.cols, lanesW, tray, makeRng(11), RATE_N * 2);
+    if (!boss && lastNonBoss !== null && r > lastNonBoss + CLIMB + 1e-9) { if (!nearestClimb || r < nearestClimb.achieved) nearestClimb = { artId: c.artId, seed: c.seed, d: c.lv.ref.length, achieved: r }; continue; }
+    best = c; fresh = { rate: r, Lw, lanesW }; break;
   }
   if (!best) {
     if (boss && nearestBoss && !nearest) unfillable.push(`level ${n} (boss, target ${target}, ${tray} boxes): every candidate is greedy-solvable; nearest ${nearestBoss.artId} seed ${nearestBoss.seed} rated ${nearestBoss.achieved.toFixed(2)}. Try more --seeds or --arts; there is no override for the boss rule`);
@@ -130,12 +140,8 @@ CURVE.forEach((entry, i) => {
     else unfillable.push(`level ${n} (target ${target}${boss ? ', boss' : ''}, ${tray} boxes): no candidate inside ${BAND[0]}–${BAND[1]} dispatches${boss ? ' that the greedy player loses' : ''}; nearest ${nearest ? `${nearest.artId} seed ${nearest.seed} at ${nearest.d} (rated ${nearest.achieved.toFixed(2)})` : 'none'}`);
     return;
   }
-  const { lv, artId, seed } = best;
+  const { lv, artId, seed } = best, { rate, Lw, lanesW } = fresh;
   uses[artId]++; chapterUses[chapter][artId] = (chapterUses[chapter][artId] || 0) + 1;
-  // the winner's selection estimate is biased toward the target (the best of many noisy numbers): the baked rating is a fresh
-  // measurement, which is also what the descent rule and the suite's re-measurement see
-  const Lw = loadLevel({ ...lv, tray }); const lanesW = Lw.lanes.map(l => l.map(c => [c.color, c.count]));
-  const rate = GEN.casualWinRate(Lw.cols, lanesW, tray, makeRng(11), RATE_N * 2);
   if (!boss) lastNonBoss = rate;
   // the reference line as sim cat ids (cats are numbered lane by lane, front to back), so the headless suite can replay it
   const offsets = []; let acc = 0; for (const l of lv.lanes) { offsets.push(acc); acc += l.split(' ').length; }
