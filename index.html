@@ -538,7 +538,7 @@ const LEVELS = [
     seed:1, curve:{ target:0.94 },
     rating:{ randomWin:0.37, casualWin:0.963, greedyWins:true, dispatches:29 },
     ref:[6,0,7,7,7,12,1,1,8,8,13,13,2,9,14,2,2,3,3,15,4,4,10,4,16,11,5,17,18] },
-  { id:"icecream", name:"Ice cream", artId:"icecream", art:ARTS["icecream"].art, lanes:[ "B10 T6 B4 N16", "O2 O5 B2 B2 B10", "B9 B18 G8 G6 R1 B8 B3" ], tray:4, pinned:true,
+  { id:"icecream-t4", name:"Ice cream", artId:"icecream", art:ARTS["icecream"].art, lanes:[ "B10 T6 B4 N16", "O2 O5 B2 B2 B10", "B9 B18 G8 G6 R1 B8 B3" ], tray:4, pinned:true,
     rating:{ randomWin:0.1, casualWin:1, greedyWins:true } },
   { id:"umbrella-10-a0e56d", name:"Umbrella", artId:"umbrella", art:ARTS["umbrella"].art, lanes:[ "W11 W10 B4 Y2 R3 W2", "B8 W6 Y1 R7 R10 Y2 R3", "K3 K2 W11 K1 Y2 Y2 W14 W1 W4 W1" ], tray:4,
     seed:1, curve:{ target:0.9 },
@@ -584,7 +584,7 @@ const LEVELS = [
     seed:1, curve:{ target:0.65 },
     rating:{ randomWin:0.06, casualWin:0.698, greedyWins:true, dispatches:26 },
     ref:[4,4,4,8,0,0,8,8,1,9,8,1,8,9,9,5,10,2,3,2,6,11,11,7,6,6] },
-  { id:"mushroom", name:"Mushroom", artId:"mushroom", art:ARTS["mushroom"].art, lanes:[ "G11 W1 B5", "W11 B14 B2 R9 B10 W1", "B14 R16 K2 R10 W4" ], tray:3, pinned:true,
+  { id:"mushroom-t3", name:"Mushroom", artId:"mushroom", art:ARTS["mushroom"].art, lanes:[ "G11 W1 B5", "W11 B14 B2 R9 B10 W1", "B14 R16 K2 R10 W4" ], tray:3, pinned:true,
     rating:{ randomWin:0.033, casualWin:0.62, greedyWins:true } },
   { id:"icecream-22-4a94eb", name:"Ice cream", artId:"icecream", art:ARTS["icecream"].art, lanes:[ "O6 N1 N1 O1 G11 B20", "T1 B8 T3 N14 R1", "B9 G3 B17 T2 B12" ], tray:4,
     seed:3, curve:{ target:0.6 },
@@ -610,7 +610,7 @@ const LEVELS = [
     seed:1, curve:{ target:0.56 },
     rating:{ randomWin:0.007, casualWin:0.543, greedyWins:true, dispatches:25 },
     ref:[8,4,4,4,0,4,4,4,1,9,9,2,5,5,5,3,0,10,5,6,3,3,5,11,7] },
-  { id:"catface", name:"Cat", artId:"catface", art:ARTS["catface"].art, lanes:[ "B11 B14 B6 O9 B12 O4 B1", "W9 N1 O9 O7 O8", "O15 K3 B10 N2" ], tray:2, pinned:true,
+  { id:"catface-t2", name:"Cat", artId:"catface", art:ARTS["catface"].art, lanes:[ "B11 B14 B6 O9 B12 O4 B1", "W9 N1 O9 O7 O8", "O15 K3 B10 N2" ], tray:2, pinned:true,
     rating:{ randomWin:0, casualWin:0.53, greedyWins:true } },
   { id:"strawberry-29-068874", name:"Strawberry", artId:"strawberry", art:ARTS["strawberry"].art, lanes:[ "Y1 W4 G12", "W20 Y5 R16", "R2 R16 W8 W16" ], tray:3,
     seed:3, curve:{ target:0.5 },
@@ -624,7 +624,7 @@ const LEVELS = [
     seed:1, curve:{ target:0.44 },
     rating:{ randomWin:0, casualWin:0.465, greedyWins:true, dispatches:30 },
     ref:[0,0,0,3,9,9,3,9,3,10,6,7,10,10,10,6,6,8,7,4,10,1,2,6,2,2,5,11,11,11] },
-  { id:"rainbow", name:"Rainbow", artId:"rainbow", art:ARTS["rainbow"].art, lanes:[ "O8 G2 B15 O8", "G2 P8 Y8 B2 R2", "B7 R16 G4", "W18 B2 Y2 R4 B12" ], tray:3, pinned:true,
+  { id:"rainbow-t3", name:"Rainbow", artId:"rainbow", art:ARTS["rainbow"].art, lanes:[ "O8 G2 B15 O8", "G2 P8 Y8 B2 R2", "B7 R16 G4", "W18 B2 Y2 R4 B12" ], tray:3, pinned:true,
     curve:{ target:0.35, boss:true }, rating:{ randomWin:0, casualWin:0.347, greedyWins:false } },
   { id:"catface-33-9ae125", name:"Cat", artId:"catface", art:ARTS["catface"].art, lanes:[ "O19 K3 O17 O12", "B20 W7 N3 B7 B2", "O4 W2 B3 B12 B10" ], tray:3,
     seed:3, curve:{ target:0.46 },
@@ -770,6 +770,7 @@ function loadLevel(level, opts = {}) {
 }
 
 /** Loader assertions for the baked set (called at boot; fails loudly). */
+const pinnedId = (artId, tray) => (tray == null || tray === 5 ? artId : `${artId}-t${tray}`);
 function validateBakedLevels() {
   const ids = new Set();
   LEVELS.forEach((lv, i) => {
@@ -777,7 +778,9 @@ function validateBakedLevels() {
     ids.add(lv.id);
     // The id is the level's identity for progress and telemetry: a pinned reference is its art, a curated level is
     // art-slot-layout, so a re-bake that changes a puzzle changes its id and progress earned on the old one falls away.
-    const want = lv.pinned ? lv.artId : `${lv.artId}-${i + 1}-${layoutHash(lv.art, lv.lanes)}`;
+    // a pinned reference played with the appendix's five boxes is its art; with a smaller tray the id carries it, since the
+    // tray changes the puzzle and a result earned with five boxes must not mark the three-box version done
+    const want = lv.pinned ? pinnedId(lv.artId, lv.tray) : `${lv.artId}-${i + 1}-${layoutHash(lv.art, lv.lanes)}`;
     if (lv.id !== want) throw new LevelError(`level ${i + 1} id ${lv.id} does not match its layout (expected ${want}); re-bake with tools/curate.mjs`);
     loadLevel(lv);
   });
@@ -1353,7 +1356,7 @@ const DAILY = (() => {
   return { EPOCH, number, key, artFor, def, emojiMap, emojiGrid, shareText, streakAfter, alive };
 })();
 
-const CORE = { CONFIG, mulberry32, makeRng, hashSeed, layoutHash, PALETTE, DAILY, SYMBOLS, ARTS, LEVELS, BACKTEST, LevelError, columns, parseLane, laneToString,
+const CORE = { CONFIG, mulberry32, makeRng, hashSeed, layoutHash, pinnedId, PALETTE, DAILY, SYMBOLS, ARTS, LEVELS, BACKTEST, LevelError, columns, parseLane, laneToString,
                colorCounts, loadLevel, validateBakedLevels, GEN, createSim };
 if (typeof module !== 'undefined' && module.exports) module.exports = CORE;
 </script>
@@ -2636,7 +2639,7 @@ const UI = (() => {
     return c;
   }
   function difficultyLabel(lv) {
-    const b = lv.rating || BACKTEST[lv.id]; if (!b) return '';
+    const b = lv.rating || BACKTEST[lv.artId]; if (!b) return '';
     return (b.casualWin != null ? `casual-win ${Math.round(b.casualWin * 100)}%` : `random-win ${Math.round(b.randomWin * 100)}%`) + (b.greedyWins ? '' : ' · needs lookahead');
   }
   // ---- level select: pages by chapter (plan §2.1), eight levels a page; remembers the page and follows the last level played ----
@@ -3055,7 +3058,7 @@ function selftest() {
       const s = GEN.solve(cols, lanes, cap, 2e6);
       const rate = GEN.randomWinRate(cols, lanes, cap, makeRng(hashSeed('st:' + lv.id)), 300);
       const greedy = GEN.playout(cols, lanes, cap, makeRng(1), true);
-      lines.push(`${lv.id}: solvable=${s.solvable} random-win=${rate.toFixed(2)} (appendix ${BACKTEST[lv.id].randomWin}) greedy=${greedy}`);
+      lines.push(`${lv.id}: solvable=${s.solvable} random-win=${rate.toFixed(2)} (appendix ${BACKTEST[lv.artId].randomWin}) greedy=${greedy}`);
     }
     let replayed = 0, bad = [];                                 // the curated rest: their baked reference line must win
     for (const lv of LEVELS.filter(l => !l.pinned)) {

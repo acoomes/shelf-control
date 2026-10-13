@@ -31,7 +31,7 @@ const fmt = (x) => (typeof x === 'number' ? x.toFixed(3) : String(x));
 
 console.log('== loader ==');
 try { validateBakedLevels(); ok(true, `all ${LEVELS.length} baked levels pass loader assertions (${PINNED.length} pinned, ${CURATED.length} curated from ${ART_LIST.length} arts)`); } catch (e) { ok(false, `loader: ${e.message}`); }
-ok(PINNED.every(lv => lv.id === lv.artId) && CURATED.every(lv => lv.id === `${lv.artId}-${LEVELS.indexOf(lv) + 1}-${layoutHash(lv.art, lv.lanes)}`), 'ids are identities: a pinned reference is its art, a curated level is art-slot-layout hash');
+ok(PINNED.every(lv => lv.id === (lv.tray === 5 ? lv.artId : `${lv.artId}-t${lv.tray}`)) && CURATED.every(lv => lv.id === `${lv.artId}-${LEVELS.indexOf(lv) + 1}-${layoutHash(lv.art, lv.lanes)}`), 'ids are identities: a pinned reference is its art (plus its tray when under five), a curated level is art-slot-layout hash');
 { // the same lanes in another order is a different puzzle: its id no longer matches, and the loader says so
   const lv = CURATED[0], keep = lv.lanes; lv.lanes = [...keep.slice(1), keep[0]]; let threw = false;
   try { validateBakedLevels(); } catch (e) { threw = /does not match its layout/.test(e.message); }
@@ -133,7 +133,7 @@ for (const lv of PINNED) {
   const rng = makeRng(C.hashSeed('playout:' + lv.id));
   const rate = GEN.randomWinRate(cols, lanes, cap, rng, PLAYOUTS);
   const greedy = GEN.playout(cols, lanes, cap, rng, true);
-  const ref = BACKTEST[lv.id];
+  const ref = BACKTEST[lv.artId];
   ok(Math.abs(rate - ref.randomWin) <= 0.05, `${lv.id}: random-win ${fmt(rate)} (appendix ${ref.randomWin})`);
   ok(greedy === ref.greedyWins, `${lv.id}: greedy wins=${greedy} (appendix ${ref.greedyWins})`);
 }
@@ -172,7 +172,7 @@ for (const lv of PINNED) {
 
 console.log('\n== 13.1.3 determinism ==');
 {
-  const lv = LEVELS.find(l => l.id === 'icecream');
+  const lv = LEVELS.find(l => l.artId === 'icecream' && l.pinned);
   const run = () => {
     const sim = createSim(lv); const out = [];
     const order = [];
@@ -198,7 +198,7 @@ console.log('\n== 13.1.3 determinism ==');
   }
   const golden = {};
   // the references at the five boxes the appendix gave them, whatever tray their slot has
-  for (const lv of LEVELS) { const sim = createSim(lv, { trayCapacity: 5 }); const parts = []; for (let i = 0; i < 12; i++) { const lane = sim.lanes[i % sim.lanes.length]; if (!lane.length) continue; const id = lane[0].id; const r = sim.dispatch(id); parts.push(r.ok ? r.placements.map(p => `${p.col}${p.row}`).join('') : r.reason); if (r.ok) sim.arrive(id); } golden[lv.id] = C.hashSeed(parts.join('|')); }
+  for (const lv of LEVELS) { const sim = createSim(lv, { trayCapacity: 5 }); const parts = []; for (let i = 0; i < 12; i++) { const lane = sim.lanes[i % sim.lanes.length]; if (!lane.length) continue; const id = lane[0].id; const r = sim.dispatch(id); parts.push(r.ok ? r.placements.map(p => `${p.col}${p.row}`).join('') : r.reason); if (r.ok) sim.arrive(id); } golden[lv.pinned ? lv.artId : lv.id] = C.hashSeed(parts.join('|')); }
   const GOLDEN = { heart: 3785182514, chick: 4117558065, mushroom: 1688537698, icecream: 1379069667, catface: 3638597410, rainbow: 3689267354 };
   ok(Object.keys(GOLDEN).every(id => golden[id] === GOLDEN[id]), `placement golden hashes match for the reference levels (${JSON.stringify(Object.fromEntries(Object.keys(GOLDEN).map(id => [id, golden[id]])))})`);
 }

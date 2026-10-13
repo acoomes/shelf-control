@@ -23,7 +23,7 @@ const m = /<script id="core">([\s\S]*?)<\/script>/.exec(html);
 if (!m) { console.error('core script not found'); process.exit(2); }
 const sandbox = { module: { exports: {} }, console };
 vm.runInNewContext(m[1], sandbox, { filename: 'core.js' });
-const { ARTS, LEVELS, GEN, loadLevel, layoutHash, makeRng } = sandbox.module.exports;
+const { ARTS, LEVELS, GEN, loadLevel, layoutHash, makeRng, pinnedId } = sandbox.module.exports;
 
 const argv = process.argv.slice(2);
 const flag = (name, dflt) => { const i = argv.indexOf(name); return i >= 0 ? Number(argv[i + 1]) : dflt; };
@@ -74,7 +74,7 @@ function presetFor(target, boss) {
 }
 const casual = (cols, lanes, cap) => GEN.casualWinRate(cols, lanes, cap, makeRng(7), RATE_N);
 
-const pinned = Object.fromEntries(LEVELS.filter(l => l.pinned).map(l => [l.id, l]));
+const pinned = Object.fromEntries(LEVELS.filter(l => l.pinned).map(l => [l.artId, l]));   // by art: a pinned id carries its tray
 for (const e of CURVE) if (e.pin && !pinned[e.pin]) { console.error(`pinned level ${e.pin} is not in the current baked set`); process.exit(2); }
 const uses = Object.fromEntries(Object.keys(ARTS).map(a => [a, 0]));
 const chapterUses = []; CURVE.forEach((e, i) => { const c = Math.floor(i / CHAPTER); (chapterUses[c] ||= {}); if (e.pin) { const a = pinned[e.pin].artId; chapterUses[c][a] = (chapterUses[c][a] || 0) + 1; } });
@@ -97,7 +97,7 @@ CURVE.forEach((entry, i) => {
     if (isBoss && greedyWins) unfillable.push(`level ${n} (pinned ${lv.id}) sits in a boss slot but the greedy player solves it with ${tray} boxes`);
     if (!isBoss && !greedyWins) unfillable.push(`level ${n} (pinned ${lv.id}) needs lookahead with ${tray} boxes but is not in a boss slot; move it or give it a bigger tray`);
     const target = isBoss ? entry.boss : lastNonBoss ?? rate;
-    out.push({ ...lv, lanes: lv.lanes.slice(), tray, curve: isBoss ? { target: entry.boss, boss: true } : undefined,
+    out.push({ ...lv, id: pinnedId(lv.artId, tray), lanes: lv.lanes.slice(), tray, curve: isBoss ? { target: entry.boss, boss: true } : undefined,
                rating: { randomWin, casualWin: Math.round(rate * 1000) / 1000, greedyWins } });
     rows.push({ n, id: lv.id, target, achieved: rate, greedy: greedyWins, dispatches: r.line.length, tray, band: BAND, note: 'pinned' });
     if (!isBoss) {                                     // a pinned boss is exempt from the descent; the others sit on the curve like any level
